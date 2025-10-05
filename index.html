@@ -1,57 +1,141 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Sonar Search</title>
-    <script src="https://cdn.tailwindcss.com?plugins=typography,line-clamp"></script>
-    <script>
-      tailwind.config = {
-        darkMode: 'class',
-        theme: {
-          extend: {
-            colors: {
-              brand: '#0ea5e9',
-            },
-            boxShadow: {
-              glow: '0 0 0 1px rgba(255,255,255,0.06), 0 10px 30px rgba(0,0,0,0.35)'
-            }
-          }
-        }
-      }
-    </script>
+    <title>Sonar</title>
     <link rel="stylesheet" href="style.css" />
   </head>
-  <body class="min-h-screen bg-zinc-950 text-zinc-100 selection:bg-cyan-600/30">
-    <header class="sticky top-0 z-20 border-b border-white/10 bg-zinc-900/70 backdrop-blur">
-      <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-        <div class="flex items-center gap-3">
-          <span class="inline-block h-2.5 w-2.5 rounded-full bg-gradient-to-br from-cyan-400 to-blue-500 shadow-[0_0_16px] shadow-cyan-400"></span>
-          <span class="text-sm font-semibold tracking-wide text-zinc-200">Sonar Search</span>
+  <body>
+    <div class="container">
+      <header class="header">
+        <div class="location">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 22s7-4.35 7-11a7 7 0 1 0-14 0c0 6.65 7 11 7 11Z" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="11" r="3" stroke="currentColor" stroke-width="1.5"/></svg>
+          <span id="clockText" class="clock-time"></span>
+          <span class="availability-badge">
+            <span class="dot status-dot--available"></span>
+            <span class="availability-tooltip">Online</span>
+          </span>
         </div>
-      </div>
-    </header>
+        <div class="header-right">
+          <button id="spotlightTrigger" class="spotlight-trigger" aria-label="Open command palette">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+            <span class="spotlight-trigger-text">Search</span>
+            <span class="spotlight-trigger-shortcut"><kbd>⌘</kbd><kbd>K</kbd></span>
+          </button>
+          <button id="themeSwitch" class="theme-switch" aria-label="Toggle theme">
+            <svg class="theme-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+              <circle class="sun-circle" cx="12" cy="12" r="5"></circle>
+              <path class="moon-path" d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path>
+              <g class="sun-rays">
+                <line x1="12" y1="1" x2="12" y2="3"></line>
+                <line x1="12" y1="21" x2="12" y2="23"></line>
+                <line x1="1" y1="12" x2="3" y2="12"></line>
+                <line x1="21" y1="12" x2="23" y2="12"></line>
+                <line x1="4.2" y1="4.2" x2="5.6" y2="5.6"></line>
+                <line x1="18.4" y1="18.4" x2="19.8" y2="19.8"></line>
+                <line x1="4.2" y1="19.8" x2="5.6" y2="18.4"></line>
+                <line x1="18.4" y1="5.6" x2="19.8" y2="4.2"></line>
+              </g>
+            </svg>
+          </button>
+        </div>
+      </header>
 
-    <main class="mx-auto max-w-3xl px-4 py-8">
-      <div class="segmented mb-4 inline-flex rounded-xl border border-white/10 bg-zinc-900 p-1 text-sm" role="tablist" aria-label="Result mode">
-        <button class="seg active inline-flex items-center rounded-lg px-3 py-1.5 text-zinc-200 hover:bg-zinc-800" data-mode="answer" role="tab" aria-selected="true">Answer</button>
-        <button class="seg inline-flex items-center rounded-lg px-3 py-1.5 text-zinc-400 hover:bg-zinc-800" data-mode="sources" role="tab" aria-selected="false">Sources</button>
-      </div>
+      <section class="hero">
+        <svg class="hero-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m12.728-6.728-2.121 2.121M8.393 15.607l-2.121 2.121m12.728 0-2.121-2.121M8.393 8.393 6.272 6.272" stroke-width="1.5"/></svg>
+        <div class="hero-title" id="greetingText">Good day</div>
+      </section>
 
-      <form id="searchForm" class="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]" autocomplete="off">
-        <input id="queryInput" type="text" placeholder="Ask anything with Sonar..." aria-label="Search query" class="h-14 w-full rounded-xl border border-white/10 bg-zinc-900 px-4 text-zinc-100 placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-cyan-600/40" />
-        <button id="submitBtn" class="h-14 rounded-xl bg-gradient-to-b from-cyan-500 to-blue-600 font-semibold text-white shadow-glow hover:brightness-110 sm:px-5" type="submit" aria-label="Search">Search</button>
+      <form id="searchForm" class="message-bar" autocomplete="off">
+        <div class="input-affordance" style="position:relative;">
+          <input id="queryInput" class="message-input" type="text" placeholder="Type a message" aria-label="Message" />
+          <button id="voiceBtn" type="button" class="voice-btn" aria-label="Voice input">
+            <svg class="social-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 1a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z"/><path d="M19 10a7 7 0 0 1-14 0"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+          </button>
+        </div>
+        <button id="submitBtn" class="submit-btn" type="submit">Send</button>
       </form>
 
-      <p id="hint" class="mt-2 text-sm text-zinc-500">Tip: press Enter to search. No API key needed — using a server proxy.</p>
+      <div class="quick-actions" aria-label="Quick actions">
+        <button class="quick-action" data-fill="Create an image of a cozy cabin in winter, photorealistic.">Create an image</button>
+        <button class="quick-action" data-fill="Search the web for the latest AI news.">Search the web</button>
+        <button class="quick-action" data-fill="Summarize this text: ">Summarize text</button>
+        <button class="quick-action" data-fill="Explain this image: ">Analyze image</button>
+        <button class="quick-action" id="openKeybinds">Keybinds</button>
+      </div>
 
-      <section id="results" class="mt-6 grid gap-4" aria-live="polite"></section>
-    </main>
+      <p id="hint" class="hint">Tip: Enter to send • Cmd/Ctrl+K to open Search</p>
 
-    <div id="toast" class="toast fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-xl border border-white/10 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 shadow-glow" role="status" aria-live="assertive"></div>
+      <div class="segmented" role="tablist" aria-label="Result mode" style="display:none"></div>
+
+      <main id="results" class="results" aria-live="polite" style="margin-top:18px; display:grid; gap:12px;"></main>
+    </div>
+
+    <!-- Spotlight -->
+    <div id="spotlight" class="spotlight-container" aria-hidden="true">
+      <div class="spotlight-backdrop"></div>
+      <div class="spotlight-modal" role="dialog" aria-modal="true" aria-labelledby="spotlight-title">
+        <div class="spotlight-search-bar">
+          <div class="spotlight-search-icon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+          </div>
+          <input id="spotlight-input" type="text" placeholder="Search commands or type to ask..." autocomplete="off" />
+          <div class="spotlight-keyboard-shortcut"><kbd>Esc</kbd></div>
+        </div>
+        <div class="spotlight-results" id="spotlight-results"></div>
+      </div>
+    </div>
+
+    <!-- Keybinds -->
+    <button id="keybindsTrigger" class="keybinds-trigger" aria-label="Keyboard shortcuts">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M6 9h12M6 15h8"/></svg>
+    </button>
+    <div id="keybinds" class="keybinds-container" aria-hidden="true">
+      <div class="keybinds-backdrop"></div>
+      <div class="keybinds-modal" role="dialog" aria-modal="true">
+        <div class="keybinds-header">
+          <div class="keybinds-title">Keyboard shortcuts</div>
+          <button class="keybinds-close" id="keybindsClose" aria-label="Close">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div class="keybinds-content">
+          <div class="keybinds-section">
+            <div class="keybinds-section-title">General</div>
+            <div class="keybind-item">
+              <div class="keybind-description">Open command palette</div>
+              <div class="keybind-combo"><kbd>⌘</kbd><kbd>K</kbd> <span>or</span> <kbd>Ctrl</kbd><kbd>K</kbd></div>
+            </div>
+            <div class="keybind-item">
+              <div class="keybind-description">Send message</div>
+              <div class="keybind-combo"><kbd>Enter</kbd></div>
+            </div>
+            <div class="keybind-item">
+              <div class="keybind-description">Focus input</div>
+              <div class="keybind-combo"><kbd>/</kbd></div>
+            </div>
+            <div class="keybind-item">
+              <div class="keybind-description">Toggle theme</div>
+              <div class="keybind-combo"><kbd>⌘</kbd><kbd>J</kbd> <span>or</span> <kbd>Ctrl</kbd><kbd>J</kbd></div>
+            </div>
+          </div>
+        </div>
+        <div class="keybinds-footer">
+          <button class="keybinds-button" id="keybindsClose2">
+            <div class="keybinds-button-inner">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M6 18 18 6M6 6l12 12"/></svg>
+              Close <kbd>Esc</kbd>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="assertive"></div>
 
     <script defer src="app.js"></script>
   </body>
-  </html>
+</html>
 
 
