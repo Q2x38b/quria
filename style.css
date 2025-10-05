@@ -1,0 +1,18 @@
+/* Tailwind-driven primary UI; keep only small custom bits */
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; line-height: 1.5; }
+
+.spinner {
+  width: 22px; height: 22px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.12); border-top-color: #06b6d4;
+  animation: spin 1s linear infinite; margin-right: 8px; display: inline-block;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.toast { opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+.toast.show { opacity: 1; }
+
+.modal { border: 0; padding: 0; background: transparent; }
+.modal::backdrop { background: rgba(0,0,0,0.55); backdrop-filter: blur(2px); }
+
+
