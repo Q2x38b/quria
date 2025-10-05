@@ -2,6 +2,8 @@
 const API_BASE_URL = '';
 const CHAT_COMPLETIONS_PATH = '/api/sonar';
 const STORAGE_KEY = 'PPLX_API_KEY';
+const THEME_KEY = 'theme-preference';
+const RECENTS_KEY = 'recent-queries';
 
 // System prompt for Sonar
 const SYSTEM_PROMPT = [
@@ -70,10 +72,25 @@ const searchForm = document.getElementById('searchForm');
 const resultsEl = document.getElementById('results');
 const toastEl = document.getElementById('toast');
 const segButtons = Array.from(document.querySelectorAll('.segmented .seg'));
+const themeSwitch = document.getElementById('themeSwitch');
+const spotlight = document.getElementById('spotlight');
+const spotlightTrigger = document.getElementById('spotlightTrigger');
+const spotlightInput = document.getElementById('spotlight-input');
+const spotlightResults = document.getElementById('spotlight-results');
+const keybinds = document.getElementById('keybinds');
+const keybindsTrigger = document.getElementById('keybindsTrigger');
+const keybindsClose = document.getElementById('keybindsClose');
+const keybindsClose2 = document.getElementById('keybindsClose2');
+const openKeybindsBtn = document.getElementById('openKeybinds');
+const greetingText = document.getElementById('greetingText');
+const clockText = document.getElementById('clockText');
+const voiceBtn = document.getElementById('voiceBtn');
 // Removed API key UI elements
 
 let currentMode = 'answer'; // 'answer' | 'sources'
 let inFlightController = null;
+let spotlightItems = [];
+let spotlightSelectedIndex = -1;
 
 // Utilities
 function showToast(message) {
@@ -184,15 +201,17 @@ function setLoading(isLoading) {
   if (isLoading) {
     btn.innerHTML = '<span class="spinner"></span><span>Searching…</span>';
   } else {
-    btn.textContent = 'Search';
+    btn.textContent = 'Send';
   }
 }
 
 function renderAnswer(content) {
   const card = document.createElement('div');
-  card.className = 'rounded-2xl border border-white/10 bg-zinc-900 shadow-glow';
+  card.className = 'card';
   const body = document.createElement('div');
-  body.className = 'p-4 whitespace-pre-wrap text-[1.02rem]';
+  body.className = 'card-body';
+  body.style.whiteSpace = 'pre-wrap';
+  body.style.fontSize = '1.02rem';
   body.textContent = content || 'No answer.';
   card.appendChild(body);
   resultsEl.appendChild(card);
@@ -200,41 +219,47 @@ function renderAnswer(content) {
 
 function renderSources(urls) {
   const card = document.createElement('div');
-  card.className = 'rounded-2xl border border-white/10 bg-zinc-900 shadow-glow';
+  card.className = 'card';
   const body = document.createElement('div');
-  body.className = 'p-4 grid gap-3';
+  body.className = 'card-body';
 
   const label = document.createElement('div');
-  label.className = 'text-[0.75rem] uppercase tracking-wider text-zinc-400 font-semibold';
+  label.style.fontSize = '.75rem';
+  label.style.textTransform = 'uppercase';
+  label.style.letterSpacing = '.06em';
+  label.style.fontWeight = '600';
+  label.style.color = 'var(--text-secondary)';
   label.textContent = 'Sources';
   body.appendChild(label);
 
-  const grid = document.createElement('div');
-  grid.className = 'grid grid-cols-[repeat(auto-fill,minmax(72px,1fr))] gap-2';
-
   if (!urls.length) {
     const none = document.createElement('div');
-    none.className = 'text-zinc-400 text-sm';
+    none.style.color = 'var(--text-secondary)';
+    none.style.fontSize = '.9rem';
     none.textContent = 'No sources detected.';
     body.appendChild(none);
   } else {
+    const grid = document.createElement('div');
+    grid.className = 'sources-grid';
     for (const raw of urls) {
       let host = '';
       try { host = new URL(raw).hostname.replace(/^www\./, ''); } catch {}
       const a = document.createElement('a');
-      a.className = 'grid place-items-center gap-2 rounded-xl border border-white/10 bg-zinc-800 px-2 py-3 text-center hover:bg-zinc-700 no-underline text-zinc-100';
+      a.className = 'source-tile';
       a.href = raw;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
 
       const img = document.createElement('img');
-      img.className = 'h-7 w-7 rounded-md bg-zinc-900';
+      img.style.height = '28px';
+      img.style.width = '28px';
+      img.style.borderRadius = '6px';
       img.alt = '';
       img.src = getFaviconUrl(raw);
       img.onerror = () => { img.style.visibility = 'hidden'; };
 
       const span = document.createElement('div');
-      span.className = 'max-w-[120px] truncate text-xs text-zinc-400';
+      span.className = 'source-host';
       span.textContent = host || 'source';
 
       a.appendChild(img);
@@ -256,6 +281,12 @@ async function handleSearch(evt) {
   setLoading(true);
   try {
     const { content, citations } = await askSonar(q);
+    // persist recent query for spotlight
+    try {
+      const arr = JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]').filter(x => x !== q);
+      arr.unshift(q); while (arr.length > 10) arr.pop();
+      localStorage.setItem(RECENTS_KEY, JSON.stringify(arr));
+    } catch {}
     const foundUrls = uniqueUrls((citations || []).length ? citations : extractUrlsFromText(content));
     if (currentMode === 'answer') {
       renderAnswer(content);
@@ -290,6 +321,10 @@ queryInput.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     queryInput.blur();
   }
+  if (e.key === '/' && document.activeElement !== queryInput) {
+    e.preventDefault();
+    queryInput.focus();
+  }
 });
 
 for (const b of segButtons) {
@@ -313,7 +348,112 @@ for (const b of segButtons) {
 
 // Removed API key dialog handlers
 
-// Prefocus input on load
-window.addEventListener('load', () => { queryInput.focus(); });
+// -------------------- New UI features --------------------
+function getPreferredTheme() { return localStorage.getItem(THEME_KEY) || 'dark'; }
+function applyTheme(theme) { document.documentElement.setAttribute('data-theme', theme); }
+function toggleTheme() { const next = (getPreferredTheme() === 'dark') ? 'light' : 'dark'; localStorage.setItem(THEME_KEY, next); applyTheme(next); }
+
+function updateGreeting() {
+  const now = new Date();
+  const h = now.getHours();
+  const greeting = h < 12 ? 'Good morning' : (h < 18 ? 'Good afternoon' : 'Good evening');
+  if (greetingText) greetingText.textContent = greeting;
+  if (clockText) clockText.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+document.querySelectorAll('.quick-action').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const fill = btn.getAttribute('data-fill');
+    if (fill) { queryInput.value = fill; queryInput.focus(); }
+    else if (btn.id === 'openKeybinds') { openKeybinds(); }
+  });
+});
+
+function openSpotlight() {
+  if (!spotlight) return;
+  renderSpotlight('');
+  spotlight.style.display = 'block';
+  requestAnimationFrame(() => spotlight.classList.add('active'));
+  spotlightInput.value = '';
+  spotlightInput.focus();
+}
+function closeSpotlight() { if (!spotlight) return; spotlight.classList.remove('active'); setTimeout(() => { spotlight.style.display = 'none'; }, 180); }
+
+function getRecent() { try { return JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]'); } catch { return []; } }
+function saveRecent(q) { const arr = getRecent().filter(x => x !== q); arr.unshift(q); while (arr.length > 10) arr.pop(); localStorage.setItem(RECENTS_KEY, JSON.stringify(arr)); }
+
+function getCommands() {
+  return [
+    { title: 'Toggle theme', description: 'Switch between dark and light', action: toggleTheme },
+    { title: 'Focus input', description: 'Jump to the message box', action: () => queryInput.focus() },
+    { title: 'Open keybinds', description: 'View keyboard shortcuts', action: openKeybinds },
+    { title: 'Clear results', description: 'Remove previous output', action: () => { resultsEl.innerHTML = ''; } },
+  ];
+}
+
+function renderSpotlight(query) {
+  spotlightItems = [];
+  spotlightSelectedIndex = -1;
+  spotlightResults.innerHTML = '';
+  const q = (query || '').trim().toLowerCase();
+  const askItem = { title: query ? `Ask: ${query}` : 'Type to ask Sonar…', description: query ? 'Press Enter to search with Sonar' : 'Start typing a question', action: () => { queryInput.value = query; closeSpotlight(); handleSearch(new Event('submit')); } };
+  spotlightItems.push(askItem);
+  spotlightResults.appendChild(sectionHeader('Actions'));
+  spotlightResults.appendChild(createSpotlightItem(askItem, true));
+  const cmds = getCommands().filter(c => !q || c.title.toLowerCase().includes(q));
+  if (cmds.length) {
+    spotlightResults.appendChild(sectionHeader('Commands'));
+    for (const c of cmds) { spotlightItems.push(c); spotlightResults.appendChild(createSpotlightItem(c)); }
+  }
+  const recents = getRecent().filter(r => !q || r.toLowerCase().includes(q)).slice(0, 5);
+  if (recents.length) {
+    spotlightResults.appendChild(sectionHeader('Recent'));
+    for (const r of recents) { const item = { title: r, description: 'Recent query', action: () => { queryInput.value = r; closeSpotlight(); handleSearch(new Event('submit')); } }; spotlightItems.push(item); spotlightResults.appendChild(createSpotlightItem(item)); }
+  }
+}
+
+function sectionHeader(text) { const el = document.createElement('div'); el.className = 'spotlight-section-header'; el.textContent = text; return el; }
+function createSpotlightItem(item, selected = false) { const el = document.createElement('div'); el.className = 'spotlight-result-item'; if (selected) el.classList.add('selected'); el.innerHTML = `<div class="spotlight-result-icon">🔎</div><div class="spotlight-result-content"><div class="spotlight-result-title">${item.title}</div><div class="spotlight-result-description">${item.description || ''}</div></div>`; el.addEventListener('click', () => item.action()); return el; }
+
+function openKeybinds() { if (keybinds) { keybinds.style.display = 'block'; requestAnimationFrame(() => keybinds.classList.add('active')); } }
+function closeKeybinds() { if (keybinds) { keybinds.classList.remove('active'); setTimeout(() => { keybinds.style.display = 'none'; }, 180); } }
+
+document.addEventListener('keydown', (e) => {
+  const meta = e.ctrlKey || e.metaKey;
+  if (meta && e.key.toLowerCase() === 'k') { e.preventDefault(); openSpotlight(); }
+  if (meta && e.key.toLowerCase() === 'j') { e.preventDefault(); toggleTheme(); }
+  if (e.key === 'Escape') { if (spotlight && spotlight.style.display === 'block') closeSpotlight(); if (keybinds && keybinds.style.display === 'block') closeKeybinds(); }
+});
+
+if (spotlightTrigger) spotlightTrigger.addEventListener('click', openSpotlight);
+if (spotlight) spotlight.addEventListener('click', (e) => { if (e.target === spotlight) closeSpotlight(); });
+if (spotlightInput) {
+  spotlightInput.addEventListener('input', () => renderSpotlight(spotlightInput.value));
+  spotlightInput.addEventListener('keydown', (e) => {
+    const max = spotlightItems.length - 1;
+    if (e.key === 'ArrowDown') { e.preventDefault(); spotlightSelectedIndex = Math.min(max, spotlightSelectedIndex + 1); setSelected(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); spotlightSelectedIndex = Math.max(0, spotlightSelectedIndex - 1); setSelected(); }
+    if (e.key === 'Enter') { e.preventDefault(); const idx = spotlightSelectedIndex < 0 ? 0 : spotlightSelectedIndex; spotlightItems[idx]?.action?.(); }
+    if (e.key === 'Escape') closeSpotlight();
+  });
+}
+
+function setSelected() { const nodes = Array.from(spotlightResults.querySelectorAll('.spotlight-result-item')); nodes.forEach(n => n.classList.remove('selected')); const el = nodes[spotlightSelectedIndex]; if (el) el.classList.add('selected'); }
+
+if (keybindsTrigger) keybindsTrigger.addEventListener('click', openKeybinds);
+if (openKeybindsBtn) openKeybindsBtn.addEventListener('click', openKeybinds);
+if (keybindsClose) keybindsClose.addEventListener('click', closeKeybinds);
+if (keybindsClose2) keybindsClose2.addEventListener('click', closeKeybinds);
+if (keybinds) keybinds.addEventListener('click', (e) => { if (e.target === keybinds) closeKeybinds(); });
+
+if (themeSwitch) themeSwitch.addEventListener('click', toggleTheme);
+
+// Voice input
+let recognition = null;
+try { const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition; if (SpeechRecognition) { recognition = new SpeechRecognition(); recognition.lang = 'en-US'; recognition.interimResults = false; recognition.maxAlternatives = 1; recognition.onresult = (event) => { const transcript = Array.from(event.results).map(r => r[0]?.transcript).join(' '); if (transcript) { queryInput.value = transcript; handleSearch(new Event('submit')); } }; } } catch {}
+if (voiceBtn && recognition) { voiceBtn.addEventListener('click', () => { try { recognition.start(); } catch {} }); }
+
+// Prefocus input on load and apply theme
+window.addEventListener('load', () => { applyTheme(getPreferredTheme()); updateGreeting(); setInterval(updateGreeting, 30000); queryInput.focus(); });
 
 
