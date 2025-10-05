@@ -9,12 +9,7 @@ const searchForm = document.getElementById('searchForm');
 const resultsEl = document.getElementById('results');
 const toastEl = document.getElementById('toast');
 const segButtons = Array.from(document.querySelectorAll('.segmented .seg'));
-const apiKeyBtn = document.getElementById('apiKeyBtn');
-const apiKeyDialog = document.getElementById('apiKeyDialog');
-const apiKeyForm = document.getElementById('apiKeyForm');
-const apiKeyInput = document.getElementById('apiKeyInput');
-const toggleKeyVisBtn = document.getElementById('toggleKeyVis');
-const clearKeyBtn = document.getElementById('clearKeyBtn');
+// Removed API key UI elements
 
 let currentMode = 'answer'; // 'answer' | 'sources'
 let inFlightController = null;
@@ -26,14 +21,9 @@ function showToast(message) {
   setTimeout(() => toastEl.classList.remove('show'), 2400);
 }
 
-function getApiKey() {
-  return localStorage.getItem(STORAGE_KEY) || '';
-}
+function getApiKey() { return ''; }
 
-function setApiKey(key) {
-  if (!key) return localStorage.removeItem(STORAGE_KEY);
-  localStorage.setItem(STORAGE_KEY, key);
-}
+function setApiKey(_) { /* no-op */ }
 
 function abortInFlight() {
   if (inFlightController) {
@@ -260,42 +250,9 @@ for (const b of segButtons) {
   });
 }
 
-apiKeyBtn.addEventListener('click', () => {
-  apiKeyInput.value = getApiKey();
-  apiKeyDialog.showModal();
-});
-
-toggleKeyVisBtn.addEventListener('click', () => {
-  apiKeyInput.type = apiKeyInput.type === 'password' ? 'text' : 'password';
-});
-
-clearKeyBtn.addEventListener('click', () => {
-  setApiKey('');
-  apiKeyInput.value = '';
-  showToast('API key cleared');
-});
-
-apiKeyForm.addEventListener('submit', (e) => {
-  e.preventDefault();
-  const key = (apiKeyInput.value || '').trim();
-  if (!key) {
-    setApiKey('');
-    apiKeyDialog.close();
-    showToast('API key cleared');
-    return;
-  }
-  setApiKey(key);
-  apiKeyDialog.close();
-  showToast('API key saved');
-});
+// Removed API key dialog handlers
 
 // Prefocus input on load
-window.addEventListener('load', () => {
-  if (getApiKey()) {
-    queryInput.focus();
-  } else {
-    showToast('Set your Perplexity API key (gear icon)');
-  }
-});
+window.addEventListener('load', () => { queryInput.focus(); });
 
 

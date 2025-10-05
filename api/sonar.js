@@ -1,6 +1,16 @@
 export const config = { runtime: 'edge' };
 
 export default async function handler(req) {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'access-control-allow-origin': '*',
+        'access-control-allow-methods': 'POST, OPTIONS',
+        'access-control-allow-headers': 'content-type',
+      }
+    });
+  }
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
@@ -18,10 +28,21 @@ export default async function handler(req) {
     });
   }
 
+  const apiKey = process.env.PPLX_API_KEY;
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'Server is not configured. Missing PPLX_API_KEY.' }), {
+      status: 500,
+      headers: {
+        'content-type': 'application/json',
+        'access-control-allow-origin': '*',
+      }
+    });
+  }
+
   const upstream = await fetch('https://api.perplexity.ai/chat/completions', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${process.env.PPLX_API_KEY}`,
+      'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify(body)
@@ -36,6 +57,7 @@ export default async function handler(req) {
       // Basic CORS; tweak if you host frontend elsewhere
       'access-control-allow-origin': '*',
       'access-control-allow-methods': 'POST, OPTIONS',
+      'access-control-allow-headers': 'content-type',
     }
   });
 }
