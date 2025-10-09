@@ -79,7 +79,7 @@ const SYSTEM_PROMPT = [
   '- Select diverse, trustworthy sources.',
   '',
   'Weather:',
-  '- Provide a very short forecast only.',
+  '- Provide a very short forecast only. When someone asks for the weather, use their current location for a short forecast.',
   '',
   'People:',
   '- Write a short, comprehensive biography.',
