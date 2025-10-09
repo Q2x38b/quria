@@ -230,7 +230,15 @@ async function askSonar(query) {
   const content = message?.content || '';
   // Citations may appear in message.citations or top-level data.citations
   const citations = Array.isArray(message?.citations) ? message.citations : (Array.isArray(data?.citations) ? data.citations : []);
-  const images = Array.isArray(data?.images) ? data.images : (Array.isArray(message?.images) ? message.images : []);
+  const normalizeImage = (it) => {
+    if (!it) return null;
+    if (typeof it === 'string') return it;
+    if (typeof it.url === 'string') return it.url;
+    if (typeof it.src === 'string') return it.src;
+    return null;
+  };
+  const rawImages = Array.isArray(data?.images) ? data.images : (Array.isArray(message?.images) ? message.images : []);
+  const images = rawImages.map(normalizeImage).filter(Boolean);
   return { content, citations, images };
 }
 
@@ -244,9 +252,9 @@ function setLoading(isLoading) {
   }
 }
 
-function buildSourcesGrid(urls) {
+function buildSourcesGrid(sources) {
   const card = document.createElement('div');
-  card.className = 'card';
+  card.className = 'card card--no-border';
   const body = document.createElement('div');
   body.className = 'card-body';
 
@@ -259,43 +267,38 @@ function buildSourcesGrid(urls) {
   label.textContent = 'Sources';
   body.appendChild(label);
 
-  if (!urls.length) {
-    const none = document.createElement('div');
-    none.style.color = 'var(--text-secondary)';
-    none.style.fontSize = '.9rem';
-    none.textContent = 'No sources detected.';
-    body.appendChild(none);
-  } else {
-    const grid = document.createElement('div');
-    grid.className = 'sources-grid';
-    for (const raw of urls) {
-      let host = '';
-      try { host = new URL(raw).hostname.replace(/^www\./, ''); } catch {}
+  const trackWrap = document.createElement('div');
+  trackWrap.className = 'source-carousel';
+  const track = document.createElement('div');
+  track.className = 'source-track';
+
+  if (Array.isArray(sources)) {
+    for (const s of sources) {
+      const url = typeof s === 'string' ? s : (s?.url || '');
+      if (!url) continue;
+      let host = ''; let title = '';
+      try { host = new URL(url).hostname.replace(/^www\./, ''); } catch {}
+      title = typeof s === 'object' && s?.title ? s.title : host;
       const a = document.createElement('a');
-      a.className = 'source-tile';
-      a.href = raw;
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-
-      const img = document.createElement('img');
-      img.style.height = '28px';
-      img.style.width = '28px';
-      img.style.borderRadius = '6px';
-      img.alt = '';
-      img.src = getFaviconUrl(raw);
-      img.onerror = () => { img.style.visibility = 'hidden'; };
-
-      const span = document.createElement('div');
-      span.className = 'source-host';
-      span.textContent = host || 'source';
-
-      a.appendChild(img);
-      a.appendChild(span);
-      grid.appendChild(a);
+      a.className = 'source-tile2';
+      a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      const head = document.createElement('div'); head.className = 'source-head';
+      const img = document.createElement('img'); img.alt = ''; img.src = getFaviconUrl(url); img.onerror = () => { img.style.visibility = 'hidden'; };
+      const hostEl = document.createElement('div'); hostEl.className = 'source-host2'; hostEl.textContent = host || 'source';
+      head.appendChild(img); head.appendChild(hostEl);
+      const titleEl = document.createElement('div'); titleEl.className = 'source-title2'; titleEl.textContent = title || host || 'Source';
+      a.appendChild(head); a.appendChild(titleEl);
+      track.appendChild(a);
     }
-    body.appendChild(grid);
   }
 
+  const left = document.createElement('button'); left.className = 'image-nav left'; left.innerHTML = '‹';
+  const right = document.createElement('button'); right.className = 'image-nav right'; right.innerHTML = '›';
+  left.addEventListener('click', () => { track.scrollBy({ left: -240, behavior: 'smooth' }); });
+  right.addEventListener('click', () => { track.scrollBy({ left: 240, behavior: 'smooth' }); });
+  trackWrap.appendChild(left); trackWrap.appendChild(track); trackWrap.appendChild(right);
+
+  body.appendChild(trackWrap);
   card.appendChild(body);
   return card;
 }
@@ -410,17 +413,19 @@ function renderChatFromData(chat) {
   queryEl.className = 'result-query';
   queryEl.textContent = chat.query;
   header.appendChild(queryEl);
+  // Images and Sources at top of response
+  const imgCarouselTop = renderImageCarousel(chat.resultImages || []);
+  if (imgCarouselTop) header.appendChild(imgCarouselTop);
   header.appendChild(buildSourcesGrid(chat.sources));
   resultsEl.appendChild(header);
 
   // Answer card
   const answerCard = document.createElement('div');
-  answerCard.className = 'card';
+  answerCard.className = 'card card--no-border';
   const answerBody = document.createElement('div');
-  answerBody.className = 'card-body';
-  answerBody.style.whiteSpace = 'pre-wrap';
+  answerBody.className = 'card-body answer-markdown';
   answerBody.style.fontSize = '1.02rem';
-  answerBody.textContent = chat.content || 'No answer.';
+  answerBody.innerHTML = (chat.content || '').replace(/\n\n/g, '<br/><br/>');
   answerCard.appendChild(answerBody);
 
   const actions = document.createElement('div');
@@ -443,7 +448,7 @@ function renderChatFromData(chat) {
 
   // Related
   const related = document.createElement('div');
-  related.className = 'card';
+  related.className = 'card card--no-border';
   const relatedBody = document.createElement('div');
   relatedBody.className = 'card-body related';
   const title = document.createElement('div');
