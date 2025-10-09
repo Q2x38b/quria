@@ -216,6 +216,7 @@ a { color: inherit; text-decoration: none; }
 /* Input Bar */
 .message-bar { display: grid; grid-template-columns: 1fr; gap: 10px; width: 100%; max-width: 48rem; margin: 8px auto 0; }
 .message-input { min-height: 100px; max-height: 120px; width: 100%; border-radius: 12px; border: 1px solid var(--border-color); background-color: var(--background); color: var(--text-primary); padding: 10px 48px 62px 10px; font-family: var(--font-satoshi); font-size: 15px; outline: none; resize: none; overflow: auto; line-height: 1.35; }
+.message-input:focus, .message-input:active, .message-input:focus-visible { outline: none; box-shadow: none; }
 .input-affordance { position: relative; }
 .input-tray { position: absolute; left: 6px; right: 6px; bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .input-tray-left { display: flex; align-items: center; gap: 6px; }
