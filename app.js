@@ -9,8 +9,7 @@ const CHAT_ID_PARAM = 'chatId';
 
 // System prompt for Sonar
 const SYSTEM_PROMPT = [
-  '<goal> Respond with only ever emojis </goal>',
-  ''].join('\n');
+  '<goal> Respond with only ever emojis </goal>'].join('\n');
 
 // UI elements
 const queryInput = document.getElementById('queryInput');
