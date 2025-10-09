@@ -544,6 +544,8 @@ async function handleSearch(evt) {
     const header = document.createElement('div'); header.className = 'results-header';
     const queryEl = document.createElement('div'); queryEl.className = 'result-query'; queryEl.textContent = q; header.appendChild(queryEl);
     resultsEl.appendChild(header);
+    // Add inline spinner immediately so user sees loading state at top
+    const sp = document.createElement('span'); sp.id = 'inlineSpinner'; sp.className = 'spinner spinner--sm'; queryEl.appendChild(sp);
     const answerCard = document.createElement('div'); answerCard.className = 'card card--no-border';
     const answerBody = document.createElement('div'); answerBody.className = 'card-body answer-markdown'; answerBody.style.fontSize = '1.02rem'; answerCard.appendChild(answerBody);
     resultsEl.appendChild(answerCard);

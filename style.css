@@ -230,8 +230,8 @@ a { color: inherit; text-decoration: none; }
 /* Position submit button to bottom-right inside input */
 .input-tray-right { margin-left: auto; }
 
-/* Chat-active layout: keep input at bottom, hide hero/quick actions */
-.chat-active .landing { display: none; }
+/* Chat-active layout: keep input at bottom; do NOT hide the input form */
+.chat-active .landing { display: contents; }
 .chat-active .hero,
 .chat-active .quick-actions,
 .chat-active .hint { display: none; }
