@@ -373,7 +373,7 @@ function resetToNewChat() {
   pendingFiles = [];
   if (attachBadge) { attachBadge.style.display = 'none'; attachBadge.textContent = '0'; }
   // Remove q param
-  try { const url = new URL(window.location.href); url.searchParams.delete('q'); history.replaceState({}, '', url.toString()); } catch {}
+  try { const url = new URL(window.location.href); url.searchParams.delete('q'); url.searchParams.delete('chat'); history.replaceState({}, '', url.toString()); } catch {}
   queryInput.focus();
   // Return to top when starting a new chat
   try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch { window.scrollTo(0,0); }
@@ -410,7 +410,11 @@ function renderChatsDrawer() {
     actions.className = 'chat-item-actions';
     const openBtn = document.createElement('button'); openBtn.className = 'chat-open'; openBtn.textContent = 'Open';
     const delBtn = document.createElement('button'); delBtn.className = 'chat-delete'; delBtn.textContent = 'Delete';
-    openBtn.addEventListener('click', () => { closeDrawer(); renderChatFromData(chat); });
+    openBtn.addEventListener('click', () => { 
+      closeDrawer(); 
+      try { const url = new URL(window.location.href); url.searchParams.set('chat', chat.id); url.searchParams.delete('q'); history.replaceState({}, '', url.toString()); } catch {}
+      renderChatFromData(chat); 
+    });
     delBtn.addEventListener('click', () => { deleteChat(chat.id); renderChatsDrawer(); if (currentChatId === chat.id) { currentChatId = null; } });
     actions.appendChild(openBtn); actions.appendChild(delBtn);
     item.appendChild(info); item.appendChild(actions);
@@ -565,8 +569,8 @@ async function handleSearch(evt) {
     const chat = { id: chatId, query: q, content, sources: foundUrls, related: generateRelated(q), ts: Date.now(), images: pendingImages.slice(), files: pendingFiles.slice(), resultImages: Array.isArray(images) ? images : [] };
     upsertChat(chat);
     currentChatId = chat.id;
-    // Update URL param
-    try { const url = new URL(window.location.href); url.searchParams.set('q', q); history.replaceState({}, '', url.toString()); } catch {}
+    // Update URL to reference this chat id
+    try { const url = new URL(window.location.href); url.searchParams.set('chat', chat.id); url.searchParams.delete('q'); history.replaceState({}, '', url.toString()); } catch {}
     // Re-render to apply markdown, images, sources, related and copy actions
     resultsEl.removeChild(answerCard);
     resultsEl.removeChild(header);
@@ -795,18 +799,21 @@ window.addEventListener('load', () => {
     }).catch(() => {});
   } catch {}
   const url = new URL(window.location.href);
-  const q = (url.searchParams.get('q') || '').trim();
-  if (q) {
-    startedFromUrl = true;
-    queryInput.value = q;
-    handleSearch(new Event('submit'));
-    // Ensure we start at the top when loading an existing chat
-    try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch { window.scrollTo(0,0); }
+  const chatId = (url.searchParams.get('chat') || '').trim();
+  if (chatId) {
+    const chat = getChatById(chatId);
+    if (chat) {
+      renderChatFromData(chat);
+      // Ensure we start at the top when loading an existing chat
+      try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch { window.scrollTo(0,0); }
+    } else {
+      // Invalid chat id in URL, clear it and show landing
+      try { url.searchParams.delete('chat'); history.replaceState({}, '', url.toString()); } catch {}
+      queryInput.focus();
+    }
   } else {
-    // Load last chat if any
-    const chats = loadChats();
-    if (chats.length) { renderChatFromData(chats[0]); try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch { window.scrollTo(0,0); } }
-    else { queryInput.focus(); }
+    // Do not auto-open any chat without an explicit chat id param
+    queryInput.focus();
   }
 });
 
