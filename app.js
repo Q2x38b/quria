@@ -396,9 +396,9 @@ async function askRelatedSuggestions(query) {
     'You are a query expansion assistant.',
     'Given the user query, return exactly 5 short, varied, high-intent related searches.',
     'Constraints:',
-    '- Each suggestion must be <= 48 characters',
-    '- No punctuation except standard spaces and hyphens',
-    '- No numbering or bullets',
+    '- Each suggestion must be 1–4 words and <= 32 characters',
+    '- Use only letters, numbers, spaces, and hyphens',
+    '- No numbering, bullets, code fences, or extra text',
     '- Do not repeat the original query verbatim',
     'Output ONLY a JSON array of 5 strings. No prose.'
   ].join('\n');
@@ -410,7 +410,8 @@ async function askRelatedSuggestions(query) {
       { role: 'system', content: system },
       { role: 'user', content: [{ type: 'text', text: query }] }
     ].filter(Boolean),
-    temperature: 0.3,
+    temperature: 0.1,
+    max_tokens: 80,
   };
   const isIso2 = (c) => typeof c === 'string' && /^[A-Z]{2}$/.test(c);
   if (userLocation && (isIso2(userLocation.country) || (userLocation.lat && userLocation.lon))) {
@@ -438,15 +439,47 @@ async function askRelatedSuggestions(query) {
     try {
       const parsed = JSON.parse(text);
       if (Array.isArray(parsed)) {
-        return parsed.map(x => String(x)).filter(Boolean).slice(0, 5);
+        const cleaned = sanitizeRelatedList(parsed, query);
+        return cleaned.length ? cleaned.slice(0, 5) : null;
       }
     } catch {}
     // Fallback: split by newlines
-    const lines = text.split('\n').map(s => s.replace(/^[-*\d\.\s]+/, '').trim()).filter(Boolean).slice(0,5);
-    return lines.length ? lines : null;
+    const lines = text.split('\n').map(s => s.replace(/^[-*\d\.\s]+/, '').trim()).filter(Boolean);
+    const cleaned = sanitizeRelatedList(lines, query);
+    return cleaned.length ? cleaned.slice(0, 5) : null;
   } catch {
     return null;
   }
+}
+
+// Enforce brevity and consistency for related suggestions
+function sanitizeRelatedList(list, originalQuery) {
+  const maxLen = 36;
+  const normalizedQuery = String(originalQuery || '').toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim();
+  const seen = new Set();
+  const out = [];
+  for (const item of (Array.isArray(list) ? list : [])) {
+    let s = String(item || '');
+    // Strip common formatting and disallowed punctuation
+    s = s.replace(/^```[a-zA-Z]*\n([\s\S]*?)```$/m, '$1');
+    s = s.replace(/^[-*\d\.\s]+/, '');
+    s = s.replace(/["'`]/g, '');
+    s = s.replace(/[^A-Za-z0-9\s-]/g, '');
+    s = s.replace(/\s+/g, ' ').trim();
+    if (!s) continue;
+    // Truncate to maxLen at a word boundary where possible
+    if (s.length > maxLen) {
+      const cut = s.slice(0, maxLen);
+      const lastSpace = cut.lastIndexOf(' ');
+      s = (lastSpace > 16 ? cut.slice(0, lastSpace) : cut).trim();
+    }
+    const lower = s.toLowerCase();
+    if (!lower || lower === normalizedQuery || seen.has(lower)) continue;
+    seen.add(lower);
+    out.push(s);
+    if (out.length >= 5) break;
+  }
+  return out;
 }
 
 function setLoading(isLoading) {
@@ -548,13 +581,14 @@ function renderImageCarousel(imageUrls) {
 function generateRelated(query) {
   const q = (query || '').trim();
   if (!q) return [];
-  return [
-    `Explain ${q} simply`,
-    `Summarize ${q} in bullets`,
-    `Pros and cons of ${q}`,
-    `Key dates and timeline for ${q}`,
-    `Best sources to learn about ${q}`
+  const suggestions = [
+    `What is ${q}`,
+    `${q} summary`,
+    `${q} pros and cons`,
+    `${q} timeline`,
+    `${q} resources`
   ];
+  return sanitizeRelatedList(suggestions, q);
 }
 
 function setChatActive(isActive) {
