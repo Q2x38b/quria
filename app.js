@@ -182,7 +182,7 @@ async function fetchWithRetry(url, options, maxRetries = 3) {
   return final;
 }
 
-async function askSonar(query, { onChunk } = {}) {
+async function askSonar(query) {
 
   abortInFlight();
   inFlightController = new AbortController();
@@ -226,30 +226,15 @@ async function askSonar(query, { onChunk } = {}) {
     };
   }
 
-  // Use streaming for better UX
-  const streamBody = { ...body, stream: true };
+  // Non-streaming request/response
   const res = await fetchWithRetry(`${API_BASE_URL}${CHAT_COMPLETIONS_PATH}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(streamBody), signal: inFlightController.signal
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: inFlightController.signal
   });
 
-  // Read event stream
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let fullText = '';
-  let lastPayload = null;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    const chunk = dec.decode(value, { stream: true });
-    fullText += chunk;
-    if (onChunk) onChunk(chunk);
-    lastPayload = chunk;
-  }
-
-  // Fallback parse: if backend sent JSON as last message
-  let data = {};
-  try { data = JSON.parse(fullText); } catch { /* event-stream already handled via onChunk */ }
-  if (!data || !data.choices) data = { choices: [{ message: { content: fullText } }] };
+  const data = await res.json();
   const choice = data?.choices?.[0];
   const message = choice?.message || {};
   const content = message?.content || '';
@@ -463,32 +448,7 @@ function renderChatFromData(chat) {
   const answerBody = document.createElement('div');
   answerBody.className = 'card-body answer-markdown';
   answerBody.style.fontSize = '1.02rem';
-  // Basic markdown: headers, lists, bold, tables
-  let html = chat.content || '';
-  html = html.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^#\s+(.*)$/gm, '<h2>$1</h2>');
-  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-  // Replace inline citation markers [1], [2], [1][2][5] with favicons
-  const hostFromUrl = (u) => { try { return new URL(u).origin; } catch { return ''; } };
-  if (Array.isArray(chat.sources) && chat.sources.length) {
-    const sources = chat.sources;
-    html = html.replace(/(\[(\d+(?:\]\[\d+)*)\])/g, (match, _all, nums) => {
-      const parts = nums.split('][').map(n => parseInt(n,10)-1).filter(i => i >= 0 && i < sources.length);
-      if (!parts.length) return match;
-      const icons = parts.map(i => {
-        const url = typeof sources[i] === 'string' ? sources[i] : (sources[i]?.url || '');
-        const href = url || '#';
-        const ico = getFaviconUrl(href);
-        return `<a href="${href}" target="_blank" rel="noopener" class="cite-icon"><img src="${ico}" alt=""/></a>`;
-      }).join('');
-      return icons;
-    });
-  }
-  html = html.replace(/\n\n/g, '<br/><br/>' );
-  // Convert simple tables (already formatted) by keeping as preformatted block
-  if (/\|\s*[-]+/.test(html)) { html = html.replace(/\n/g, '<br/>'); }
-  answerBody.innerHTML = html;
+  answerBody.innerHTML = renderMarkdown(chat.content || '', chat.sources);
   answerCard.appendChild(answerBody);
 
   const actions = document.createElement('div');
@@ -532,6 +492,50 @@ function renderChatFromData(chat) {
   resultsEl.appendChild(related);
 }
 
+// Render Markdown safely with optional citation icon replacement
+function renderMarkdown(markdownText, sources) {
+  const md = markdownText || '';
+  try {
+    // Prefer marked + DOMPurify if available
+    let html;
+    if (window.marked && typeof marked.parse === 'function') {
+      if (typeof marked.setOptions === 'function') {
+        marked.setOptions({ gfm: true, breaks: true, headerIds: false, mangle: false });
+      }
+      html = marked.parse(md);
+    } else {
+      // Fallback minimal formatting
+      html = md
+        .replace(/^###\s+(.*)$/gm, '<h3>$1</h3>')
+        .replace(/^##\s+(.*)$/gm, '<h2>$1</h2>')
+        .replace(/^#\s+(.*)$/gm, '<h2>$1</h2>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n\n/g, '<br/><br/>' );
+      if (/\|\s*[-]+/.test(html)) { html = html.replace(/\n/g, '<br/>'); }
+    }
+
+    if (Array.isArray(sources) && sources.length) {
+      html = html.replace(/(\[(\d+(?:\]\[\d+)*)\])/g, (match, _all, nums) => {
+        const parts = nums.split('][').map(n => parseInt(n,10)-1).filter(i => i >= 0 && i < sources.length);
+        if (!parts.length) return match;
+        return parts.map(i => {
+          const url = typeof sources[i] === 'string' ? sources[i] : (sources[i]?.url || '');
+          const href = url || '#';
+          const ico = getFaviconUrl(href);
+          return `<a href="${href}" target="_blank" rel="noopener" class="cite-icon"><img src="${ico}" alt=""/></a>`;
+        }).join('');
+      });
+    }
+
+    if (window.DOMPurify && typeof DOMPurify.sanitize === 'function') {
+      return DOMPurify.sanitize(html, { ALLOWED_ATTR: ['href','target','rel','src','alt','class'] });
+    }
+    return html;
+  } catch (_) {
+    return md;
+  }
+}
+
 async function handleSearch(evt) {
   evt?.preventDefault();
   const q = (queryInput.value || '').trim();
@@ -539,7 +543,7 @@ async function handleSearch(evt) {
   setChatActive(true);
   setLoading(true);
   try {
-    // Create shells so we can stream into them
+    // Create shells for the incoming answer
     const chatId = `c_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
     const header = document.createElement('div'); header.className = 'results-header';
     const queryEl = document.createElement('div'); queryEl.className = 'result-query'; queryEl.textContent = q; header.appendChild(queryEl);
@@ -550,13 +554,7 @@ async function handleSearch(evt) {
     const answerBody = document.createElement('div'); answerBody.className = 'card-body answer-markdown'; answerBody.style.fontSize = '1.02rem'; answerCard.appendChild(answerBody);
     resultsEl.appendChild(answerCard);
 
-    let streamed = '';
-    const { content, citations, images } = await askSonar(q, { onChunk: (chunk) => {
-      streamed += chunk;
-      // Cheap streaming view: show last 2K chars
-      const txt = streamed.replace(/^data:\s*/gm,'').replace(/\n\n/g,'<br/><br/>' );
-      answerBody.innerHTML = txt;
-    }});
+    const { content, citations, images } = await askSonar(q);
     // persist recent query for spotlight
     try {
       const arr = JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]').filter(x => x !== q);
