@@ -215,7 +215,7 @@ a { color: inherit; text-decoration: none; }
 
 /* Input Bar */
 .message-bar { display: grid; grid-template-columns: 1fr; gap: 10px; width: 100%; max-width: 48rem; margin: 8px auto 0; }
-.message-input { min-height: 100px; max-height: 120px; width: 100%; border-radius: 12px; border: 1px solid var(--border-color); background-color: rgba(255,255,255,0.06); color: var(--text-primary); padding: 10px 48px 62px 10px; font-family: var(--font-satoshi); font-size: 15px; outline: none; resize: none; overflow: auto; line-height: 1.35; }
+.message-input { min-height: 100px; max-height: 120px; width: 100%; border-radius: 12px; border: 1px solid var(--border-color); background-color: var(--background); color: var(--text-primary); padding: 10px 48px 62px 10px; font-family: var(--font-satoshi); font-size: 15px; outline: none; resize: none; overflow: auto; line-height: 1.35; }
 .input-affordance { position: relative; }
 .input-tray { position: absolute; left: 6px; right: 6px; bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .input-tray-left { display: flex; align-items: center; gap: 6px; }
@@ -237,7 +237,7 @@ a { color: inherit; text-decoration: none; }
 .chat-active .hint { display: none; }
 .chat-active .container { padding-bottom: 110px; }
 .results { padding-top: 0; display: grid; gap: 12px; }
-.chat-active .message-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; width: 100%; max-width: 52rem; margin: 0; z-index: 80; background: transparent; }
+.chat-active .message-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; width: 100%; max-width: 52rem; margin: 0; z-index: 80; background: var(--background); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 6px; box-shadow: 0 -6px 24px rgba(0,0,0,0.25); }
 
 /* Ensure results anchor to top under header */
 .results { align-content: start; }
@@ -326,6 +326,28 @@ a { color: inherit; text-decoration: none; }
 .answer-markdown p { margin: 8px 0; }
 .answer-markdown ul { margin: 8px 0; padding-left: 18px; }
 .answer-markdown li { margin: 4px 0; }
+.answer-markdown img { max-width: 100%; height: auto; display: block; border-radius: 8px; border: 1px solid var(--border-subtle); }
+.answer-markdown pre { overflow-x: auto; padding: 10px; background: var(--hover-bg); border: 1px solid var(--border-subtle); border-radius: 8px; }
+.answer-markdown code { font-family: var(--font-geist-mono); font-size: 0.9em; }
+.answer-markdown blockquote { border-left: 3px solid var(--border-color); margin: 8px 0; padding: 6px 10px; color: var(--text-secondary); }
+
+/* Citation icons inside markdown (e.g., [1]) */
+.cite-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; margin-left: 4px; border-radius: 50%; overflow: hidden; border: 1px solid var(--border-subtle); background: var(--background); vertical-align: text-bottom; }
+.cite-icon img { width: 100%; height: 100%; display: block; object-fit: cover; }
+
+/* Responsive, scrollable tables inside markdown */
+.answer-markdown table { width: 100%; border-collapse: collapse; display: block; overflow-x: auto; border: 1px solid var(--border-subtle); border-radius: 10px; }
+.answer-markdown thead { position: relative; }
+.answer-markdown th, .answer-markdown td { padding: 8px 10px; border-bottom: 1px solid var(--border-subtle); text-align: left; white-space: nowrap; }
+.answer-markdown th { background: var(--hover-bg); color: var(--text-primary); font-weight: 600; }
+.answer-markdown tr:last-child td { border-bottom: none; }
+
+/* Small device tuning */
+@media (max-width: 480px) {
+  .answer-markdown { font-size: 0.95rem; }
+  .card-body { padding: 12px; }
+  .result-query { font-size: 1.25rem; }
+}
 .sources-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; }
 .source-tile { display: grid; place-items: center; gap: 8px; border: 1px solid var(--border-subtle); border-radius: 10px; padding: 10px; color: var(--text-primary); text-decoration: none; }
 .source-tile:hover { background: var(--hover-bg); }
