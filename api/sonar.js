@@ -48,13 +48,25 @@ export default async function handler(req) {
     body: JSON.stringify(body)
   });
 
-  // Pass through response
+  // If streaming, pipe through the body directly
+  if (body && body.stream) {
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: {
+        'content-type': upstream.headers.get('content-type') || 'text/event-stream',
+        'access-control-allow-origin': '*',
+        'access-control-allow-methods': 'POST, OPTIONS',
+        'access-control-allow-headers': 'content-type',
+      }
+    });
+  }
+
+  // Non-streaming: pass through as JSON text
   const text = await upstream.text();
   return new Response(text, {
     status: upstream.status,
     headers: {
       'content-type': 'application/json',
-      // Basic CORS; tweak if you host frontend elsewhere
       'access-control-allow-origin': '*',
       'access-control-allow-methods': 'POST, OPTIONS',
       'access-control-allow-headers': 'content-type',

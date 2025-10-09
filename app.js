@@ -182,7 +182,7 @@ async function fetchWithRetry(url, options, maxRetries = 3) {
   return final;
 }
 
-async function askSonar(query) {
+async function askSonar(query, { onChunk } = {}) {
 
   abortInFlight();
   inFlightController = new AbortController();
@@ -212,20 +212,43 @@ async function askSonar(query) {
     ].filter(Boolean),
     temperature: 0.2
   };
+  // Add web_search_options.user_location if we have sufficient data
+  if (userLocation && (userLocation.country || (userLocation.lat && userLocation.lon))) {
+    body.web_search_options = {
+      user_location: {
+        country: userLocation.country || 'US',
+        region: userLocation.region || undefined,
+        city: userLocation.city || undefined,
+        latitude: userLocation.lat || undefined,
+        longitude: userLocation.lon || undefined
+      }
+    };
+  }
 
-  const res = await fetchWithRetry(`${API_BASE_URL}${CHAT_COMPLETIONS_PATH}`,
-    {
-      method: 'POST',
-      headers: {
-        // Authorization handled by serverless proxy
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(body),
-      signal: inFlightController.signal
-    }
-  );
+  // Use streaming for better UX
+  const streamBody = { ...body, stream: true };
+  const res = await fetchWithRetry(`${API_BASE_URL}${CHAT_COMPLETIONS_PATH}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(streamBody), signal: inFlightController.signal
+  });
 
-  const data = await res.json();
+  // Read event stream
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let fullText = '';
+  let lastPayload = null;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const chunk = dec.decode(value, { stream: true });
+    fullText += chunk;
+    if (onChunk) onChunk(chunk);
+    lastPayload = chunk;
+  }
+
+  // Fallback parse: if backend sent JSON as last message
+  let data = {};
+  try { data = JSON.parse(fullText); } catch { /* event-stream already handled via onChunk */ }
+  if (!data || !data.choices) data = { choices: [{ message: { content: fullText } }] };
   const choice = data?.choices?.[0];
   const message = choice?.message || {};
   const content = message?.content || '';
@@ -502,10 +525,24 @@ async function handleSearch(evt) {
   const q = (queryInput.value || '').trim();
   if (!q) return;
   setChatActive(true);
-  resultsEl.innerHTML = '';
   setLoading(true);
   try {
-    const { content, citations, images } = await askSonar(q);
+    // Create shells so we can stream into them
+    const chatId = `c_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+    const header = document.createElement('div'); header.className = 'results-header';
+    const queryEl = document.createElement('div'); queryEl.className = 'result-query'; queryEl.textContent = q; header.appendChild(queryEl);
+    resultsEl.appendChild(header);
+    const answerCard = document.createElement('div'); answerCard.className = 'card card--no-border';
+    const answerBody = document.createElement('div'); answerBody.className = 'card-body answer-markdown'; answerBody.style.fontSize = '1.02rem'; answerCard.appendChild(answerBody);
+    resultsEl.appendChild(answerCard);
+
+    let streamed = '';
+    const { content, citations, images } = await askSonar(q, { onChunk: (chunk) => {
+      streamed += chunk;
+      // Cheap streaming view: show last 2K chars
+      const txt = streamed.replace(/^data:\s*/gm,'').replace(/\n\n/g,'<br/><br/>' );
+      answerBody.innerHTML = txt;
+    }});
     // persist recent query for spotlight
     try {
       const arr = JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]').filter(x => x !== q);
@@ -513,11 +550,14 @@ async function handleSearch(evt) {
       localStorage.setItem(RECENTS_KEY, JSON.stringify(arr));
     } catch {}
     const foundUrls = uniqueUrls((citations || []).length ? citations : extractUrlsFromText(content));
-    const chat = { id: `c_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, query: q, content, sources: foundUrls, related: generateRelated(q), ts: Date.now(), images: pendingImages.slice(), files: pendingFiles.slice(), resultImages: Array.isArray(images) ? images : [] };
+    const chat = { id: chatId, query: q, content, sources: foundUrls, related: generateRelated(q), ts: Date.now(), images: pendingImages.slice(), files: pendingFiles.slice(), resultImages: Array.isArray(images) ? images : [] };
     upsertChat(chat);
     currentChatId = chat.id;
     // Update URL param
     try { const url = new URL(window.location.href); url.searchParams.set('q', q); history.replaceState({}, '', url.toString()); } catch {}
+    // Re-render to apply markdown, images, sources, related and copy actions
+    resultsEl.removeChild(answerCard);
+    resultsEl.removeChild(header);
     renderChatFromData(chat);
     // Clear images after send
     pendingImages = [];
