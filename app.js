@@ -42,7 +42,7 @@ const SYSTEM_PROMPT = [
   '',
   '    Recent News - You need to concisely summarize recent news events based on the provided search results, grouping them by topics. - Always use lists and highlight the news title at the beginning of each list item. - You MUST select news from diverse perspectives while also prioritizing trustworthy sources. - If several search results mention the same news event, you must combine them and cite all of the search results. - Prioritize more recent events, ensuring to compare timestamps.',
   '',
-  '    Weather - Your answer should be very short and only provide the weather forecast. - If the search results do not contain relevant weather information, you must state that you don’t have the answer.',
+  '    Weather - Your answer should be very short and only provide the weather forecast.',
   '',
   '    People - You need to write a short, comprehensive biography for the person mentioned in the Query. - Make sure to abide by the formatting instructions to create a visually appealing and easy to read answer. - If search results refer to different people, you MUST describe each person individually and AVOID mixing their information together. - NEVER start your answer with the person’s name as a header.',
   '',
@@ -72,6 +72,7 @@ const queryInput = document.getElementById('queryInput');
 const searchForm = document.getElementById('searchForm');
 const resultsEl = document.getElementById('results');
 const toastEl = document.getElementById('toast');
+const searchingOverlay = document.getElementById('searching');
 const segButtons = Array.from(document.querySelectorAll('.segmented .seg'));
 const themeSwitch = document.getElementById('themeSwitch');
 const spotlight = document.getElementById('spotlight');
@@ -247,8 +248,10 @@ function setLoading(isLoading) {
   btn.disabled = isLoading;
   if (isLoading) {
     btn.innerHTML = '<span class="spinner"></span>';
+    if (searchingOverlay) { searchingOverlay.classList.add('active'); }
   } else {
     btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>';
+    if (searchingOverlay) { searchingOverlay.classList.remove('active'); }
   }
 }
 
@@ -425,14 +428,39 @@ function renderChatFromData(chat) {
   const answerBody = document.createElement('div');
   answerBody.className = 'card-body answer-markdown';
   answerBody.style.fontSize = '1.02rem';
-  answerBody.innerHTML = (chat.content || '').replace(/\n\n/g, '<br/><br/>');
+  // Basic markdown: headers, lists, bold, tables
+  let html = chat.content || '';
+  html = html.replace(/^###\s+(.*)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^##\s+(.*)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^#\s+(.*)$/gm, '<h2>$1</h2>');
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+  // Replace inline citation markers [1], [2], [1][2][5] with favicons
+  const hostFromUrl = (u) => { try { return new URL(u).origin; } catch { return ''; } };
+  if (Array.isArray(chat.sources) && chat.sources.length) {
+    const sources = chat.sources;
+    html = html.replace(/(\[(\d+(?:\]\[\d+)*)\])/g, (match, _all, nums) => {
+      const parts = nums.split('][').map(n => parseInt(n,10)-1).filter(i => i >= 0 && i < sources.length);
+      if (!parts.length) return match;
+      const icons = parts.map(i => {
+        const url = typeof sources[i] === 'string' ? sources[i] : (sources[i]?.url || '');
+        const href = url || '#';
+        const ico = getFaviconUrl(href);
+        return `<a href="${href}" target="_blank" rel="noopener" class="cite-icon"><img src="${ico}" alt=""/></a>`;
+      }).join('');
+      return icons;
+    });
+  }
+  html = html.replace(/\n\n/g, '<br/><br/>' );
+  // Convert simple tables (already formatted) by keeping as preformatted block
+  if (/\|\s*[-]+/.test(html)) { html = html.replace(/\n/g, '<br/>'); }
+  answerBody.innerHTML = html;
   answerCard.appendChild(answerBody);
 
   const actions = document.createElement('div');
   actions.className = 'answer-actions card-body';
   const copyBtn = document.createElement('button');
   copyBtn.className = 'copy-btn';
-  copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="9" width="13" height="13" rx="2"/><rect x="2" y="2" width="13" height="13" rx="2"/></svg><span>Copy</span>';
+  copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M8 17h8M7 12h10M6 7h12"/></svg><span>Copy</span>';
   copyBtn.addEventListener('click', () => copyText(chat.content || ''));
   actions.appendChild(copyBtn);
   answerCard.appendChild(actions);
