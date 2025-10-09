@@ -339,7 +339,8 @@ async function askSonar(query, historyMessages) {
     return_images: true,
     image_domain_filter: ['-gettyimages.com','-shutterstock.com'],
   // Use API-supported image formats only (per docs)
-  image_format_filter: ['jpg','png','webp','gif'],
+  // Allowed: bmp, gif, jpeg, png, webp, svg
+  image_format_filter: ['jpeg','png','webp','gif','svg','bmp'],
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       userLocation ? { role: 'system', content: `Location context: ${JSON.stringify(userLocation)}. Use location ONLY if the query explicitly depends on place or time-zone.` } : null,
