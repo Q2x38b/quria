@@ -183,7 +183,7 @@ async function fetchWithRetry(url, options, maxRetries = 3) {
   return final;
 }
 
-async function askSonar(query) {
+async function askSonar(query, historyMessages) {
 
   abortInFlight();
   inFlightController = new AbortController();
@@ -209,6 +209,7 @@ async function askSonar(query) {
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       userLocation ? { role: 'system', content: `Location context: ${JSON.stringify(userLocation)}. Use location ONLY if the query explicitly depends on place or time-zone.` } : null,
+      ...(Array.isArray(historyMessages) ? historyMessages : []),
       { role: 'user', content: userContent }
     ].filter(Boolean),
     temperature: 0.2
@@ -396,6 +397,37 @@ function upsertChat(chat) {
 function deleteChat(id) { const chats = loadChats().filter(c => c.id !== id); saveChats(chats); }
 function getChatById(id) { return loadChats().find(c => c.id === id) || null; }
 
+// Ensure a chat object has a conversation-style turns array.
+function ensureTurnsShape(chat) {
+  if (!chat || Array.isArray(chat.turns)) return chat;
+  const legacyTurn = {
+    query: chat.query || '',
+    content: chat.content || '',
+    sources: Array.isArray(chat.sources) ? chat.sources : [],
+    images: Array.isArray(chat.images) ? chat.images : [],
+    files: Array.isArray(chat.files) ? chat.files : [],
+    resultImages: Array.isArray(chat.resultImages) ? chat.resultImages : [],
+    related: Array.isArray(chat.related) ? chat.related : (chat.query ? generateRelated(chat.query) : []),
+    ts: chat.ts || Date.now()
+  };
+  chat.turns = [legacyTurn];
+  // Preserve last-updated timestamp on the chat root
+  chat.ts = legacyTurn.ts;
+  return chat;
+}
+
+function buildHistoryMessages(chat) {
+  const c = ensureTurnsShape({ ...chat });
+  const msgs = [];
+  for (const t of c.turns || []) {
+    const userText = (t.query || '').toString();
+    if (userText) msgs.push({ role: 'user', content: userText });
+    const assistantText = (t.content || '').toString();
+    if (assistantText) msgs.push({ role: 'assistant', content: assistantText });
+  }
+  return msgs;
+}
+
 function renderChatsDrawer() {
   if (!chatsListEl) return;
   const chats = loadChats();
@@ -407,11 +439,14 @@ function renderChatsDrawer() {
     chatsListEl.appendChild(empty);
     return;
   }
-  for (const chat of chats) {
+  for (const chatRaw of chats) {
+    const chat = ensureTurnsShape({ ...chatRaw });
+    const lastTurn = (chat.turns || [])[chat.turns.length - 1] || {};
     const item = document.createElement('div');
     item.className = 'chat-item';
     const info = document.createElement('div');
-    info.innerHTML = `<div class="chat-item-title">${chat.query}</div><div class="chat-item-sub">${new Date(chat.ts).toLocaleString()}</div>`;
+    const subTs = new Date(chat.ts || lastTurn.ts || Date.now()).toLocaleString();
+    info.innerHTML = `<div class="chat-item-title">${lastTurn.query || chat.query || 'Conversation'}</div><div class="chat-item-sub">${subTs}</div>`;
     const actions = document.createElement('div');
     actions.className = 'chat-item-actions';
     const openBtn = document.createElement('button'); openBtn.className = 'chat-open'; openBtn.textContent = 'Open';
@@ -449,67 +484,72 @@ function renderChatFromData(chat) {
   } catch {}
   resultsEl.innerHTML = '';
 
-  // Header with query and sources
-  const header = document.createElement('div');
-  header.className = 'results-header';
-  const queryEl = document.createElement('div');
-  queryEl.className = 'result-query';
-  queryEl.textContent = chat.query;
-  header.appendChild(queryEl);
-  // Images and Sources at top of response
-  const imgCarouselTop = renderImageCarousel(chat.resultImages || []);
-  if (imgCarouselTop) header.appendChild(imgCarouselTop);
-  header.appendChild(buildSourcesGrid(chat.sources));
-  resultsEl.appendChild(header);
+  const conv = ensureTurnsShape({ ...chat });
+  const turns = conv.turns || [];
+  turns.forEach((turn, idx) => {
+    // Header per turn
+    const header = document.createElement('div');
+    header.className = 'results-header';
+    const queryEl = document.createElement('div');
+    queryEl.className = 'result-query';
+    queryEl.textContent = turn.query || '';
+    header.appendChild(queryEl);
+    const imgCarouselTop = renderImageCarousel(turn.resultImages || []);
+    if (imgCarouselTop) header.appendChild(imgCarouselTop);
+    header.appendChild(buildSourcesGrid(turn.sources || []));
+    resultsEl.appendChild(header);
 
-  // Answer card
-  const answerCard = document.createElement('div');
-  answerCard.className = 'card card--no-border';
-  const answerBody = document.createElement('div');
-  answerBody.className = 'card-body answer-markdown';
-  answerBody.style.fontSize = '1.02rem';
-  answerBody.innerHTML = renderMarkdown(chat.content || '', chat.sources);
-  answerCard.appendChild(answerBody);
+    // Answer card per turn
+    const answerCard = document.createElement('div');
+    answerCard.className = 'card card--no-border';
+    const answerBody = document.createElement('div');
+    answerBody.className = 'card-body answer-markdown';
+    answerBody.style.fontSize = '1.02rem';
+    answerBody.innerHTML = renderMarkdown(turn.content || '', turn.sources || []);
+    answerCard.appendChild(answerBody);
 
-  const actions = document.createElement('div');
-  actions.className = 'answer-actions card-body';
-  const copyBtn = document.createElement('button');
-  copyBtn.className = 'copy-btn';
-  copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M8 17h8M7 12h10M6 7h12"/></svg><span>Copy</span>';
-  copyBtn.addEventListener('click', () => copyText(chat.content || ''));
-  actions.appendChild(copyBtn);
-  answerCard.appendChild(actions);
+    const actions = document.createElement('div');
+    actions.className = 'answer-actions card-body';
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn';
+    copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M8 17h8M7 12h10M6 7h12"/></svg><span>Copy</span>';
+    copyBtn.addEventListener('click', () => copyText(turn.content || ''));
+    actions.appendChild(copyBtn);
+    answerCard.appendChild(actions);
 
-  const imgCarousel = renderImageCarousel(chat.resultImages || []);
-  if (imgCarousel) {
-    const pad = document.createElement('div');
-    pad.className = 'card-body';
-    pad.appendChild(imgCarousel);
-    answerCard.appendChild(pad);
-  }
-  resultsEl.appendChild(answerCard);
+    const imgCarousel = renderImageCarousel(turn.resultImages || []);
+    if (imgCarousel) {
+      const pad = document.createElement('div');
+      pad.className = 'card-body';
+      pad.appendChild(imgCarousel);
+      answerCard.appendChild(pad);
+    }
+    resultsEl.appendChild(answerCard);
 
-  // Related
-  const related = document.createElement('div');
-  related.className = 'card card--no-border';
-  const relatedBody = document.createElement('div');
-  relatedBody.className = 'card-body related';
-  const title = document.createElement('div');
-  title.className = 'related-title';
-  title.textContent = 'Related searches';
-  const list = document.createElement('div');
-  list.className = 'related-list';
-  for (const r of chat.related || []) {
-    const item = document.createElement('div');
-    item.className = 'related-item';
-    const span = document.createElement('span'); span.textContent = r;
-    const plus = document.createElement('span'); plus.className = 'plus'; plus.textContent = '+';
-    item.appendChild(span); item.appendChild(plus);
-    item.addEventListener('click', () => { queryInput.value = r; handleSearch(new Event('submit')); });
-    list.appendChild(item);
-  }
-  relatedBody.appendChild(title); relatedBody.appendChild(list); related.appendChild(relatedBody);
-  resultsEl.appendChild(related);
+    // Only show related for the last turn
+    if (idx === turns.length - 1) {
+      const related = document.createElement('div');
+      related.className = 'card card--no-border';
+      const relatedBody = document.createElement('div');
+      relatedBody.className = 'card-body related';
+      const title = document.createElement('div');
+      title.className = 'related-title';
+      title.textContent = 'Related searches';
+      const list = document.createElement('div');
+      list.className = 'related-list';
+      for (const r of (turn.related || [])) {
+        const item = document.createElement('div');
+        item.className = 'related-item';
+        const span = document.createElement('span'); span.textContent = r;
+        const plus = document.createElement('span'); plus.className = 'plus'; plus.textContent = '+';
+        item.appendChild(span); item.appendChild(plus);
+        item.addEventListener('click', () => { queryInput.value = r; handleSearch(new Event('submit')); });
+        list.appendChild(item);
+      }
+      relatedBody.appendChild(title); relatedBody.appendChild(list); related.appendChild(relatedBody);
+      resultsEl.appendChild(related);
+    }
+  });
 }
 
 // Render Markdown safely with optional citation icon replacement
@@ -563,18 +603,35 @@ async function handleSearch(evt) {
   setChatActive(true);
   setLoading(true);
   try {
-    // Create shells for the incoming answer
-    const chatId = `c_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+    // Determine or create the active conversation
+    let chat = currentChatId ? getChatById(currentChatId) : null;
+    if (!chat) {
+      const chatId = `c_${Date.now()}_${Math.random().toString(36).slice(2,7)}`;
+      const newsId = `news_${Date.now()}_${Math.random().toString(36).slice(2,5)}`;
+      chat = { id: chatId, newsId, turns: [], ts: Date.now() };
+      upsertChat(chat);
+      currentChatId = chat.id;
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set(CHAT_ID_PARAM, chat.id);
+        url.searchParams.delete('q');
+        history.replaceState({}, '', url.toString());
+      } catch {}
+    }
+    chat = ensureTurnsShape({ ...chat });
+
+    // Create shells for the incoming answer (append at bottom)
     const header = document.createElement('div'); header.className = 'results-header';
     const queryEl = document.createElement('div'); queryEl.className = 'result-query'; queryEl.textContent = q; header.appendChild(queryEl);
     resultsEl.appendChild(header);
-    // Add inline spinner immediately so user sees loading state at top
     const sp = document.createElement('span'); sp.id = 'inlineSpinner'; sp.className = 'spinner spinner--sm'; queryEl.appendChild(sp);
     const answerCard = document.createElement('div'); answerCard.className = 'card card--no-border';
     const answerBody = document.createElement('div'); answerBody.className = 'card-body answer-markdown'; answerBody.style.fontSize = '1.02rem'; answerCard.appendChild(answerBody);
     resultsEl.appendChild(answerCard);
 
-    const { content, citations, images } = await askSonar(q);
+    // Build history for context and ask Sonar
+    const history = buildHistoryMessages(chat);
+    const { content, citations, images } = await askSonar(q, history);
     // persist recent query for spotlight
     try {
       const arr = JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]').filter(x => x !== q);
@@ -582,15 +639,25 @@ async function handleSearch(evt) {
       localStorage.setItem(RECENTS_KEY, JSON.stringify(arr));
     } catch {}
     const foundUrls = uniqueUrls((citations || []).length ? citations : extractUrlsFromText(content));
-    const chat = { id: chatId, query: q, content, sources: foundUrls, related: generateRelated(q), ts: Date.now(), images: pendingImages.slice(), files: pendingFiles.slice(), resultImages: Array.isArray(images) ? images : [] };
-    upsertChat(chat);
-    currentChatId = chat.id;
-    // Update URL with chatId
-    try { const url = new URL(window.location.href); url.searchParams.set(CHAT_ID_PARAM, chat.id); url.searchParams.delete('q'); history.replaceState({}, '', url.toString()); } catch {}
-    // Re-render to apply markdown, images, sources, related and copy actions
+    const turn = {
+      query: q,
+      content,
+      sources: foundUrls,
+      related: generateRelated(q),
+      ts: Date.now(),
+      images: pendingImages.slice(),
+      files: pendingFiles.slice(),
+      resultImages: Array.isArray(images) ? images : []
+    };
+    const updated = ensureTurnsShape({ ...chat });
+    updated.turns = [...(updated.turns || []), turn];
+    updated.ts = Date.now();
+    upsertChat(updated);
+    currentChatId = updated.id;
+    // Re-render the whole conversation to apply markdown, images, sources, related and copy actions
     resultsEl.removeChild(answerCard);
     resultsEl.removeChild(header);
-    renderChatFromData(chat);
+    renderChatFromData(updated);
     // Clear images after send
     pendingImages = [];
     pendingFiles = [];
