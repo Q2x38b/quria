@@ -239,7 +239,7 @@ a { color: inherit; text-decoration: none; }
 .chat-active .container { padding-bottom: 110px; }
 .results { padding-top: 0; display: grid; gap: 12px; }
 .chat-active .results { padding-bottom: 200px; }
-.chat-active .message-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; width: 100%; max-width: 52rem; margin: 0; z-index: 80; background: var(--background); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 6px; box-shadow: 0 -6px 24px rgba(0,0,0,0.25); }
+.chat-active .message-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; width: 100%; max-width: 52rem; margin: 0; z-index: 80; background: var(--background); border: none; border-radius: 14px; padding: 6px; box-shadow: none; }
 
 /* Ensure results anchor to top under header */
 .results { align-content: start; }
