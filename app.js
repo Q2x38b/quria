@@ -157,6 +157,7 @@ const settingsLocationText = document.getElementById('settingsLocationText');
 const attachBtn = document.getElementById('attachBtn');
 const attachBadge = document.getElementById('attachBadge');
 const imageInput = document.getElementById('imageInput');
+const attachmentsPreview = document.getElementById('attachmentsPreview');
 // Chat manager UI
 const openChatsBtn = document.getElementById('openChatsBtn');
 const newChatBtn = document.getElementById('newChatBtn');
@@ -174,6 +175,7 @@ let currentChatId = null;
 let startedFromUrl = false;
 let pendingImages = []; // as data URIs
 let pendingFiles = [];  // as base64 strings for docs ({name, b64})
+let pendingImageNames = []; // parallel to pendingImages to display filenames
 let userLocation = null; // {city, region, country, lat, lon}
 
 // Utilities
@@ -507,7 +509,9 @@ function resetToNewChat() {
   queryInput.value = '';
   pendingImages = [];
   pendingFiles = [];
+  pendingImageNames = [];
   if (attachBadge) { attachBadge.style.display = 'none'; attachBadge.textContent = '0'; }
+  try { renderAttachmentsPreview(); } catch {}
   // Remove chat-related URL params
   try {
     const url = new URL(window.location.href);
@@ -908,10 +912,12 @@ async function handleSearch(evt) {
       const lastHeader = headers[headers.length - 1];
       if (lastHeader) requestAnimationFrame(() => scrollElementToTop(lastHeader, 10));
     } catch {}
-    // Clear images after send
+    // Clear attachments after send
     pendingImages = [];
     pendingFiles = [];
+    pendingImageNames = [];
     if (attachBadge) { attachBadge.style.display = 'none'; attachBadge.textContent = '0'; }
+    try { renderAttachmentsPreview(); } catch {}
   } catch (err) {
     console.error(err);
     showToast(err.message || 'Request failed');
@@ -1133,6 +1139,7 @@ window.addEventListener('load', () => {
   } catch {}
   const url = new URL(window.location.href);
   const id = (url.searchParams.get(CHAT_ID_PARAM) || '').trim();
+  const qParam = (url.searchParams.get('q') || '').trim();
   if (id) {
     const chat = getChatById(id);
     if (chat) {
@@ -1142,8 +1149,13 @@ window.addEventListener('load', () => {
       try { url.searchParams.delete(CHAT_ID_PARAM); history.replaceState({}, '', url.toString()); } catch {}
       queryInput.focus();
     }
+  } else if (qParam) {
+    // Pre-fill from q param and auto-search
+    queryInput.value = qParam;
+    startedFromUrl = true;
+    handleSearch(new Event('submit'));
   } else {
-    // No chatId in URL: start fresh
+    // No chatId or q in URL: start fresh
     queryInput.focus();
   }
 });
@@ -1156,12 +1168,79 @@ if (chatsDrawer) chatsDrawer.addEventListener('click', (e) => { if (e.target.dat
 if (clearAllChatsBtn) clearAllChatsBtn.addEventListener('click', () => { saveChats([]); renderChatsDrawer(); resetToNewChat(); });
 
 // Image attach handling: preview count and read as base64 data URIs
+function renderAttachmentsPreview() {
+  if (!attachmentsPreview) return;
+  const items = [];
+  pendingImages.forEach((src, i) => {
+    items.push({ type: 'image', name: pendingImageNames[i] || 'image', src });
+  });
+  pendingFiles.forEach((f) => {
+    items.push({ type: 'file', name: f.name || 'file', src: null });
+  });
+  if (!items.length) {
+    attachmentsPreview.style.display = 'none';
+    attachmentsPreview.innerHTML = '';
+    return;
+  }
+  attachmentsPreview.style.display = 'grid';
+  attachmentsPreview.innerHTML = '';
+  for (const it of items) {
+    const chip = document.createElement('div');
+    chip.className = 'attachment-chip';
+    const thumb = document.createElement('img');
+    thumb.className = 'attachment-thumb';
+    if (it.type === 'image' && it.src) {
+      thumb.src = it.src;
+      thumb.alt = '';
+    } else {
+      // Placeholder thumbnail for files
+      thumb.alt = '';
+      thumb.style.objectFit = 'contain';
+      thumb.style.background = 'transparent';
+      // simple paperclip glyph via data URL SVG
+      const svg = encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="%23a3a3a3"><path d="M21.44 11.05 12 20.5a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66L9.76 16.08a2 2 0 1 1-2.83-2.83l8.13-8.13" stroke-width="1.8"/></svg>');
+      thumb.src = `data:image/svg+xml;charset=utf-8,${svg}`;
+    }
+    const name = document.createElement('div');
+    name.className = 'attachment-name';
+    name.textContent = it.name;
+    const remove = document.createElement('button');
+    remove.className = 'attachment-remove';
+    remove.setAttribute('aria-label', 'Remove attachment');
+    remove.innerHTML = '✕';
+    remove.addEventListener('click', () => {
+      if (it.type === 'image') {
+        const idx = pendingImages.indexOf(it.src);
+        if (idx >= 0) { pendingImages.splice(idx, 1); pendingImageNames.splice(idx, 1); }
+      } else {
+        const idx = pendingFiles.findIndex((f) => (f.name || 'file') === it.name);
+        if (idx >= 0) pendingFiles.splice(idx, 1);
+      }
+      const count = pendingImages.length + pendingFiles.length;
+      if (attachBadge) {
+        if (count) { attachBadge.textContent = String(count); attachBadge.style.display = 'inline-flex'; }
+        else { attachBadge.style.display = 'none'; }
+      }
+      renderAttachmentsPreview();
+    });
+    chip.appendChild(thumb);
+    const textWrap = document.createElement('div');
+    const title = document.createElement('div'); title.className = 'attachment-name'; title.textContent = it.name;
+    const meta = document.createElement('div'); meta.className = 'attachment-meta'; meta.textContent = it.type === 'image' ? 'Image' : 'File';
+    textWrap.appendChild(title); textWrap.appendChild(meta);
+    chip.appendChild(textWrap);
+    chip.appendChild(remove);
+    attachmentsPreview.appendChild(chip);
+  }
+}
+
 if (attachBtn && imageInput) {
   attachBtn.addEventListener('click', () => imageInput.click());
   imageInput.addEventListener('change', async () => {
     const files = Array.from(imageInput.files || []).slice(0, 10);
     pendingImages = [];
     pendingFiles = [];
+    pendingImageNames = [];
     for (const f of files) {
       const sizeOk = typeof f.size === 'number' ? f.size <= 50 * 1024 * 1024 : true; // 50MB
       if (!sizeOk) continue;
@@ -1170,6 +1249,7 @@ if (attachBtn && imageInput) {
       if (f.type && f.type.startsWith('image/')) {
         const mime = f.type || 'image/png';
         pendingImages.push(`data:${mime};base64,${b64}`);
+        pendingImageNames.push(f.name || 'image');
       } else {
         // Docs: send raw base64 without data: prefix
         pendingFiles.push({ name: f.name || undefined, b64 });
@@ -1180,6 +1260,7 @@ if (attachBtn && imageInput) {
       if (count) { attachBadge.textContent = String(count); attachBadge.style.display = 'inline-flex'; }
       else { attachBadge.style.display = 'none'; }
     }
+    renderAttachmentsPreview();
   });
 }
 
