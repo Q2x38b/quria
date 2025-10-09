@@ -4,6 +4,7 @@ const CHAT_COMPLETIONS_PATH = '/api/sonar';
 const STORAGE_KEY = 'PPLX_API_KEY';
 const THEME_KEY = 'theme-preference';
 const RECENTS_KEY = 'recent-queries';
+const CHATS_KEY = 'sonar-chats';
 
 // System prompt for Sonar
 const SYSTEM_PROMPT = [
@@ -85,12 +86,32 @@ const openKeybindsBtn = document.getElementById('openKeybinds');
 const greetingText = document.getElementById('greetingText');
 const clockText = document.getElementById('clockText');
 const voiceBtn = document.getElementById('voiceBtn');
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsModal = document.getElementById('settings');
+const settingsClose = document.getElementById('settingsClose');
+const usePreciseLocationBtn = document.getElementById('usePreciseLocation');
+const settingsLocationText = document.getElementById('settingsLocationText');
+const attachBtn = document.getElementById('attachBtn');
+const attachBadge = document.getElementById('attachBadge');
+const imageInput = document.getElementById('imageInput');
+// Chat manager UI
+const openChatsBtn = document.getElementById('openChatsBtn');
+const newChatBtn = document.getElementById('newChatBtn');
+const chatsDrawer = document.getElementById('chatsDrawer');
+const chatsListEl = document.getElementById('chatsList');
+const closeChatsBtn = document.getElementById('closeChatsBtn');
+const clearAllChatsBtn = document.getElementById('clearAllChats');
 // Removed API key UI elements
 
 let currentMode = 'answer'; // 'answer' | 'sources'
 let inFlightController = null;
 let spotlightItems = [];
 let spotlightSelectedIndex = -1;
+let currentChatId = null;
+let startedFromUrl = false;
+let pendingImages = []; // as data URIs
+let pendingFiles = [];  // as base64 strings for docs ({name, b64})
+let userLocation = null; // {city, region, country, lat, lon}
 
 // Utilities
 function showToast(message) {
@@ -165,12 +186,29 @@ async function askSonar(query) {
   abortInFlight();
   inFlightController = new AbortController();
 
+  // Build multimodal message content
+  const userContent = [];
+  userContent.push({ type: 'text', text: query });
+  for (const uri of pendingImages) {
+    userContent.push({ type: 'image_url', image_url: { url: uri } });
+  }
+  for (const file of pendingFiles) {
+    // For docs, API expects base64 bytes ONLY (no prefix). Include optional file_name.
+    const item = { type: 'file_url', file_url: { url: file.b64 } };
+    if (file.name) item.file_name = file.name;
+    userContent.push(item);
+  }
+
   const body = {
     model: 'sonar',
+    return_images: true,
+    image_domain_filter: ['-gettyimages.com','-shutterstock.com'],
+    image_format_filter: ['jpg','png','webp','gif'],
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: query }
-    ],
+      userLocation ? { role: 'system', content: `Location context: ${JSON.stringify(userLocation)}. Use location ONLY if the query explicitly depends on place or time-zone.` } : null,
+      { role: 'user', content: userContent }
+    ].filter(Boolean),
     temperature: 0.2
   };
 
@@ -192,32 +230,21 @@ async function askSonar(query) {
   const content = message?.content || '';
   // Citations may appear in message.citations or top-level data.citations
   const citations = Array.isArray(message?.citations) ? message.citations : (Array.isArray(data?.citations) ? data.citations : []);
-  return { content, citations };
+  const images = Array.isArray(data?.images) ? data.images : (Array.isArray(message?.images) ? message.images : []);
+  return { content, citations, images };
 }
 
 function setLoading(isLoading) {
   const btn = document.getElementById('submitBtn');
   btn.disabled = isLoading;
   if (isLoading) {
-    btn.innerHTML = '<span class="spinner"></span><span>Searching…</span>';
+    btn.innerHTML = '<span class="spinner"></span>';
   } else {
-    btn.textContent = 'Send';
+    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>';
   }
 }
 
-function renderAnswer(content) {
-  const card = document.createElement('div');
-  card.className = 'card';
-  const body = document.createElement('div');
-  body.className = 'card-body';
-  body.style.whiteSpace = 'pre-wrap';
-  body.style.fontSize = '1.02rem';
-  body.textContent = content || 'No answer.';
-  card.appendChild(body);
-  resultsEl.appendChild(card);
-}
-
-function renderSources(urls) {
+function buildSourcesGrid(urls) {
   const card = document.createElement('div');
   card.className = 'card';
   const body = document.createElement('div');
@@ -270,17 +297,182 @@ function renderSources(urls) {
   }
 
   card.appendChild(body);
-  resultsEl.appendChild(card);
+  return card;
+}
+
+function renderImageCarousel(imageUrls) {
+  if (!imageUrls || !imageUrls.length) return null;
+  const wrap = document.createElement('div');
+  wrap.className = 'image-carousel';
+  const track = document.createElement('div');
+  track.className = 'image-track';
+  for (const url of imageUrls.slice(0, 20)) {
+    const a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    const img = document.createElement('img');
+    img.src = url; img.alt = '';
+    img.loading = 'lazy';
+    a.appendChild(img);
+    track.appendChild(a);
+  }
+  const left = document.createElement('button'); left.className = 'image-nav left'; left.innerHTML = '‹';
+  const right = document.createElement('button'); right.className = 'image-nav right'; right.innerHTML = '›';
+  left.addEventListener('click', () => { track.scrollBy({ left: -220, behavior: 'smooth' }); });
+  right.addEventListener('click', () => { track.scrollBy({ left: 220, behavior: 'smooth' }); });
+  wrap.appendChild(left); wrap.appendChild(track); wrap.appendChild(right);
+  return wrap;
+}
+
+function generateRelated(query) {
+  const q = (query || '').trim();
+  if (!q) return [];
+  return [
+    `Explain ${q} simply`,
+    `Summarize ${q} in bullets`,
+    `Pros and cons of ${q}`,
+    `Key dates and timeline for ${q}`,
+    `Best sources to learn about ${q}`
+  ];
+}
+
+function setChatActive(isActive) {
+  document.body.classList.toggle('chat-active', !!isActive);
+}
+
+function resetToNewChat() {
+  abortInFlight();
+  currentChatId = null;
+  setChatActive(false);
+  resultsEl.innerHTML = '';
+  queryInput.value = '';
+  pendingImages = [];
+  pendingFiles = [];
+  if (attachBadge) { attachBadge.style.display = 'none'; attachBadge.textContent = '0'; }
+  // Remove q param
+  try { const url = new URL(window.location.href); url.searchParams.delete('q'); history.replaceState({}, '', url.toString()); } catch {}
+  queryInput.focus();
+}
+
+function saveChats(chats) { try { localStorage.setItem(CHATS_KEY, JSON.stringify(chats)); } catch {} }
+function loadChats() { try { return JSON.parse(localStorage.getItem(CHATS_KEY) || '[]'); } catch { return []; } }
+function upsertChat(chat) {
+  const chats = loadChats();
+  const idx = chats.findIndex(c => c.id === chat.id);
+  if (idx >= 0) chats[idx] = chat; else chats.unshift(chat);
+  saveChats(chats);
+}
+function deleteChat(id) { const chats = loadChats().filter(c => c.id !== id); saveChats(chats); }
+function getChatById(id) { return loadChats().find(c => c.id === id) || null; }
+
+function renderChatsDrawer() {
+  if (!chatsListEl) return;
+  const chats = loadChats();
+  chatsListEl.innerHTML = '';
+  if (!chats.length) {
+    const empty = document.createElement('div');
+    empty.style.color = 'var(--text-secondary)';
+    empty.textContent = 'No saved chats yet.';
+    chatsListEl.appendChild(empty);
+    return;
+  }
+  for (const chat of chats) {
+    const item = document.createElement('div');
+    item.className = 'chat-item';
+    const info = document.createElement('div');
+    info.innerHTML = `<div class="chat-item-title">${chat.query}</div><div class="chat-item-sub">${new Date(chat.ts).toLocaleString()}</div>`;
+    const actions = document.createElement('div');
+    actions.className = 'chat-item-actions';
+    const openBtn = document.createElement('button'); openBtn.className = 'chat-open'; openBtn.textContent = 'Open';
+    const delBtn = document.createElement('button'); delBtn.className = 'chat-delete'; delBtn.textContent = 'Delete';
+    openBtn.addEventListener('click', () => { closeDrawer(); renderChatFromData(chat); });
+    delBtn.addEventListener('click', () => { deleteChat(chat.id); renderChatsDrawer(); if (currentChatId === chat.id) { currentChatId = null; } });
+    actions.appendChild(openBtn); actions.appendChild(delBtn);
+    item.appendChild(info); item.appendChild(actions);
+    chatsListEl.appendChild(item);
+  }
+}
+
+function openDrawer() { if (!chatsDrawer) return; renderChatsDrawer(); chatsDrawer.classList.add('active'); }
+function closeDrawer() { if (!chatsDrawer) return; chatsDrawer.classList.remove('active'); }
+
+function copyText(text) { try { navigator.clipboard.writeText(text); showToast('Copied'); } catch { showToast('Copy failed'); } }
+
+function renderChatFromData(chat) {
+  if (!chat) return;
+  setChatActive(true);
+  currentChatId = chat.id;
+  resultsEl.innerHTML = '';
+
+  // Header with query and sources
+  const header = document.createElement('div');
+  header.className = 'results-header';
+  const queryEl = document.createElement('div');
+  queryEl.className = 'result-query';
+  queryEl.textContent = chat.query;
+  header.appendChild(queryEl);
+  header.appendChild(buildSourcesGrid(chat.sources));
+  resultsEl.appendChild(header);
+
+  // Answer card
+  const answerCard = document.createElement('div');
+  answerCard.className = 'card';
+  const answerBody = document.createElement('div');
+  answerBody.className = 'card-body';
+  answerBody.style.whiteSpace = 'pre-wrap';
+  answerBody.style.fontSize = '1.02rem';
+  answerBody.textContent = chat.content || 'No answer.';
+  answerCard.appendChild(answerBody);
+
+  const actions = document.createElement('div');
+  actions.className = 'answer-actions card-body';
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'copy-btn';
+  copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="9" width="13" height="13" rx="2"/><rect x="2" y="2" width="13" height="13" rx="2"/></svg><span>Copy</span>';
+  copyBtn.addEventListener('click', () => copyText(chat.content || ''));
+  actions.appendChild(copyBtn);
+  answerCard.appendChild(actions);
+
+  const imgCarousel = renderImageCarousel(chat.resultImages || []);
+  if (imgCarousel) {
+    const pad = document.createElement('div');
+    pad.className = 'card-body';
+    pad.appendChild(imgCarousel);
+    answerCard.appendChild(pad);
+  }
+  resultsEl.appendChild(answerCard);
+
+  // Related
+  const related = document.createElement('div');
+  related.className = 'card';
+  const relatedBody = document.createElement('div');
+  relatedBody.className = 'card-body related';
+  const title = document.createElement('div');
+  title.className = 'related-title';
+  title.textContent = 'Related searches';
+  const list = document.createElement('div');
+  list.className = 'related-list';
+  for (const r of chat.related || []) {
+    const item = document.createElement('div');
+    item.className = 'related-item';
+    const span = document.createElement('span'); span.textContent = r;
+    const plus = document.createElement('span'); plus.className = 'plus'; plus.textContent = '+';
+    item.appendChild(span); item.appendChild(plus);
+    item.addEventListener('click', () => { queryInput.value = r; handleSearch(new Event('submit')); });
+    list.appendChild(item);
+  }
+  relatedBody.appendChild(title); relatedBody.appendChild(list); related.appendChild(relatedBody);
+  resultsEl.appendChild(related);
 }
 
 async function handleSearch(evt) {
   evt?.preventDefault();
   const q = (queryInput.value || '').trim();
   if (!q) return;
+  setChatActive(true);
   resultsEl.innerHTML = '';
   setLoading(true);
   try {
-    const { content, citations } = await askSonar(q);
+    const { content, citations, images } = await askSonar(q);
     // persist recent query for spotlight
     try {
       const arr = JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]').filter(x => x !== q);
@@ -288,12 +480,16 @@ async function handleSearch(evt) {
       localStorage.setItem(RECENTS_KEY, JSON.stringify(arr));
     } catch {}
     const foundUrls = uniqueUrls((citations || []).length ? citations : extractUrlsFromText(content));
-    if (currentMode === 'answer') {
-      renderAnswer(content);
-      renderSources(foundUrls);
-    } else {
-      renderSources(foundUrls);
-    }
+    const chat = { id: `c_${Date.now()}_${Math.random().toString(36).slice(2,7)}`, query: q, content, sources: foundUrls, related: generateRelated(q), ts: Date.now(), images: pendingImages.slice(), files: pendingFiles.slice(), resultImages: Array.isArray(images) ? images : [] };
+    upsertChat(chat);
+    currentChatId = chat.id;
+    // Update URL param
+    try { const url = new URL(window.location.href); url.searchParams.set('q', q); history.replaceState({}, '', url.toString()); } catch {}
+    renderChatFromData(chat);
+    // Clear images after send
+    pendingImages = [];
+    pendingFiles = [];
+    if (attachBadge) { attachBadge.style.display = 'none'; attachBadge.textContent = '0'; }
   } catch (err) {
     console.error(err);
     showToast(err.message || 'Request failed');
@@ -325,7 +521,26 @@ queryInput.addEventListener('keydown', (e) => {
     e.preventDefault();
     queryInput.focus();
   }
+  // Allow Shift+Enter for newline; Enter alone submits
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    handleSearch(new Event('submit'));
+  }
 });
+
+// Auto-grow textarea height between min and max
+function autoGrowTextarea(el) {
+  const min = 100; // matches CSS min-height
+  const max = 120; // matches CSS max-height
+  el.style.height = 'auto';
+  // Subtract bottom tray reserve (about 38px) to avoid overlapping buttons
+  const reserve = 38;
+  const contentHeight = el.scrollHeight + 2; // account for borders
+  const next = Math.min(max, Math.max(min, contentHeight));
+  el.style.height = next + 'px';
+}
+queryInput.addEventListener('input', () => autoGrowTextarea(queryInput));
+window.addEventListener('load', () => autoGrowTextarea(queryInput));
 
 for (const b of segButtons) {
   b.addEventListener('click', () => {
@@ -356,7 +571,7 @@ function toggleTheme() { const next = (getPreferredTheme() === 'dark') ? 'light'
 function updateGreeting() {
   const now = new Date();
   const h = now.getHours();
-  const greeting = h < 12 ? 'Good morning' : (h < 18 ? 'Good afternoon' : 'Good evening');
+  const greeting = h < 12 ? 'Good Morning' : (h < 18 ? 'Good Afternoon' : 'Good Evening');
   if (greetingText) greetingText.textContent = greeting;
   if (clockText) clockText.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
@@ -422,7 +637,14 @@ document.addEventListener('keydown', (e) => {
   const meta = e.ctrlKey || e.metaKey;
   if (meta && e.key.toLowerCase() === 'k') { e.preventDefault(); openSpotlight(); }
   if (meta && e.key.toLowerCase() === 'j') { e.preventDefault(); toggleTheme(); }
-  if (e.key === 'Escape') { if (spotlight && spotlight.style.display === 'block') closeSpotlight(); if (keybinds && keybinds.style.display === 'block') closeKeybinds(); }
+  if (e.key === 'Escape') {
+    const keybindsVisible = keybinds && keybinds.classList.contains('active');
+    const spotlightVisible = spotlight && spotlight.classList.contains('active');
+    if (spotlightVisible) { closeSpotlight(); return; }
+    if (keybindsVisible) { closeKeybinds(); return; }
+    // If input is focused, blur it on Escape
+    if (document.activeElement === queryInput) queryInput.blur();
+  }
 });
 
 if (spotlightTrigger) spotlightTrigger.addEventListener('click', openSpotlight);
@@ -446,6 +668,21 @@ if (keybindsClose) keybindsClose.addEventListener('click', closeKeybinds);
 if (keybindsClose2) keybindsClose2.addEventListener('click', closeKeybinds);
 if (keybinds) keybinds.addEventListener('click', (e) => { if (e.target === keybinds) closeKeybinds(); });
 
+function openSettings() { if (settingsModal) { settingsModal.style.display = 'block'; requestAnimationFrame(() => settingsModal.classList.add('active')); if (settingsLocationText) { settingsLocationText.textContent = userLocation ? `${userLocation.city || ''} ${userLocation.region || ''} ${userLocation.country || ''}`.trim() : 'Unknown'; } } }
+function closeSettings() { if (settingsModal) { settingsModal.classList.remove('active'); setTimeout(() => { settingsModal.style.display = 'none'; }, 180); } }
+if (settingsBtn) settingsBtn.addEventListener('click', openSettings);
+if (settingsClose) settingsClose.addEventListener('click', closeSettings);
+if (settingsModal) settingsModal.addEventListener('click', (e) => { if (e.target === settingsModal) closeSettings(); });
+
+if (usePreciseLocationBtn) usePreciseLocationBtn.addEventListener('click', () => {
+  if (!navigator.geolocation) { showToast('Geolocation not supported'); return; }
+  navigator.geolocation.getCurrentPosition((pos) => {
+    userLocation = { ...(userLocation || {}), lat: pos.coords.latitude, lon: pos.coords.longitude, precision: 'device' };
+    if (settingsLocationText) { settingsLocationText.textContent = `${userLocation.lat.toFixed(5)}, ${userLocation.lon.toFixed(5)}`; }
+    showToast('Precise location enabled');
+  }, (err) => { showToast(err.message || 'Location denied'); }, { enableHighAccuracy: true, timeout: 8000 });
+});
+
 if (themeSwitch) themeSwitch.addEventListener('click', toggleTheme);
 
 // Voice input
@@ -454,6 +691,69 @@ try { const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechR
 if (voiceBtn && recognition) { voiceBtn.addEventListener('click', () => { try { recognition.start(); } catch {} }); }
 
 // Prefocus input on load and apply theme
-window.addEventListener('load', () => { applyTheme(getPreferredTheme()); updateGreeting(); setInterval(updateGreeting, 30000); queryInput.focus(); });
+window.addEventListener('load', () => {
+  applyTheme(getPreferredTheme());
+  updateGreeting();
+  setInterval(updateGreeting, 30000);
+  // Attempt to fetch approximate location (IP-based)
+  try {
+    fetch('https://ipapi.co/json/').then(r => r.json()).then(data => {
+      userLocation = {
+        city: data?.city,
+        region: data?.region,
+        country: data?.country_name,
+        lat: data?.latitude,
+        lon: data?.longitude,
+        timezone: data?.timezone
+      };
+    }).catch(() => {});
+  } catch {}
+  const url = new URL(window.location.href);
+  const q = (url.searchParams.get('q') || '').trim();
+  if (q) {
+    startedFromUrl = true;
+    queryInput.value = q;
+    handleSearch(new Event('submit'));
+  } else {
+    // Load last chat if any
+    const chats = loadChats();
+    if (chats.length) { renderChatFromData(chats[0]); }
+    else { queryInput.focus(); }
+  }
+});
 
+// New chat / chats drawer events
+if (newChatBtn) newChatBtn.addEventListener('click', resetToNewChat);
+if (openChatsBtn) openChatsBtn.addEventListener('click', openDrawer);
+if (closeChatsBtn) closeChatsBtn.addEventListener('click', closeDrawer);
+if (chatsDrawer) chatsDrawer.addEventListener('click', (e) => { if (e.target.dataset.close === 'drawer') closeDrawer(); });
+if (clearAllChatsBtn) clearAllChatsBtn.addEventListener('click', () => { saveChats([]); renderChatsDrawer(); });
+
+// Image attach handling: preview count and read as base64 data URIs
+if (attachBtn && imageInput) {
+  attachBtn.addEventListener('click', () => imageInput.click());
+  imageInput.addEventListener('change', async () => {
+    const files = Array.from(imageInput.files || []).slice(0, 10);
+    pendingImages = [];
+    pendingFiles = [];
+    for (const f of files) {
+      const sizeOk = typeof f.size === 'number' ? f.size <= 50 * 1024 * 1024 : true; // 50MB
+      if (!sizeOk) continue;
+      const buf = await f.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      if (f.type && f.type.startsWith('image/')) {
+        const mime = f.type || 'image/png';
+        pendingImages.push(`data:${mime};base64,${b64}`);
+      } else {
+        // Docs: send raw base64 without data: prefix
+        pendingFiles.push({ name: f.name || undefined, b64 });
+      }
+    }
+    const count = pendingImages.length + pendingFiles.length;
+    if (attachBadge) {
+      if (count) { attachBadge.textContent = String(count); attachBadge.style.display = 'inline-flex'; }
+      else { attachBadge.style.display = 'none'; }
+    }
+  });
+}
 
