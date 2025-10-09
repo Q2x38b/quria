@@ -924,12 +924,56 @@ function renderMarkdown(markdownText, sources) {
   }
 }
 
+function getFriendlyErrorMessage(rawMessage) {
+  const message = String(rawMessage || '').trim();
+  const lower = message.toLowerCase();
+  if (lower.includes('pplx_api_key')) {
+    const text = 'Server missing PPLX_API_KEY. Configure it on the server and try again.';
+    return { toast: text, inline: text };
+  }
+  if (lower.includes('failed to fetch') || lower.includes('network')) {
+    const text = 'Network error contacting /api/sonar. Ensure the API backend is running.';
+    return { toast: text, inline: text };
+  }
+  if (lower.startsWith('http 404')) {
+    const text = 'API route /api/sonar not found. Run the app with an API server.';
+    return { toast: text, inline: text };
+  }
+  return { toast: message || 'Request failed', inline: message || 'Request failed' };
+}
+
+function renderInlineError(userQuery, errorText) {
+  try {
+    const header = document.createElement('div');
+    header.className = 'results-header';
+    const queryEl = document.createElement('div');
+    queryEl.className = 'result-query';
+    queryEl.textContent = userQuery || '';
+    header.appendChild(queryEl);
+    resultsEl.appendChild(header);
+
+    const card = document.createElement('div');
+    card.className = 'card card--no-border';
+    const body = document.createElement('div');
+    body.className = 'card-body';
+    const msg = document.createElement('div');
+    msg.style.color = 'var(--text-secondary)';
+    msg.textContent = errorText || 'Request failed';
+    body.appendChild(msg);
+    card.appendChild(body);
+    resultsEl.appendChild(card);
+  } catch {}
+}
+
 async function handleSearch(evt) {
   evt?.preventDefault();
   const q = (queryInput.value || '').trim();
   if (!q) return;
   setChatActive(true);
   setLoading(true);
+  // Placeholders created below for success path; keep refs for cleanup on error
+  let header = null;
+  let answerCard = null;
   try {
     // Determine or create the active conversation
     let chat = currentChatId ? getChatById(currentChatId) : null;
@@ -949,11 +993,11 @@ async function handleSearch(evt) {
     chat = ensureTurnsShape({ ...chat });
 
     // Create shells for the incoming answer (append at bottom)
-    const header = document.createElement('div'); header.className = 'results-header';
+    header = document.createElement('div'); header.className = 'results-header';
     const queryEl = document.createElement('div'); queryEl.className = 'result-query'; queryEl.textContent = q; header.appendChild(queryEl);
     resultsEl.appendChild(header);
     const sp = document.createElement('span'); sp.id = 'inlineSpinner'; sp.className = 'spinner spinner--sm'; queryEl.appendChild(sp);
-    const answerCard = document.createElement('div'); answerCard.className = 'card card--no-border';
+    answerCard = document.createElement('div'); answerCard.className = 'card card--no-border';
     const answerBody = document.createElement('div'); answerBody.className = 'card-body answer-markdown'; answerBody.style.fontSize = '1.02rem'; answerCard.appendChild(answerBody);
     resultsEl.appendChild(answerCard);
 
@@ -967,6 +1011,9 @@ async function handleSearch(evt) {
     // Build history for context and ask Sonar
     const history = buildHistoryMessages(chat);
     const { content, citations, images } = await askSonar(q, history);
+    if (!content && (!images || images.length === 0)) {
+      throw new Error('Empty response from API');
+    }
 
     // Apply math normalization to assistant content as well to ensure consistent rendering
     const normalizedContent = normalizeMathText(content);
@@ -1015,7 +1062,13 @@ async function handleSearch(evt) {
     try { renderAttachmentsPreview(); } catch {}
   } catch (err) {
     console.error(err);
-    showToast(err.message || 'Request failed');
+    const friendly = getFriendlyErrorMessage(err?.message || '');
+    showToast(friendly.toast);
+    // Clean up shells if present
+    try { if (answerCard && answerCard.parentNode) resultsEl.removeChild(answerCard); } catch {}
+    try { if (header && header.parentNode) resultsEl.removeChild(header); } catch {}
+    // Render an inline error so the user sees what happened in context
+    renderInlineError(q, friendly.inline);
   } finally {
     setLoading(false);
   }
