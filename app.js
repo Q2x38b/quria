@@ -236,6 +236,64 @@ function extractUrlsFromText(text) {
 
 async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Robust MIME detection, base64, and file readers
+function getMimeTypeFromExtension(filename) {
+  const ext = (filename || '').split('.').pop()?.toLowerCase() || '';
+  const map = {
+    heic: 'image/heic', heif: 'image/heif', avif: 'image/avif', tif: 'image/tiff', tiff: 'image/tiff', bmp: 'image/bmp', svg: 'image/svg+xml', ico: 'image/x-icon', cur: 'image/x-icon',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+    pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', rtf: 'application/rtf', txt: 'text/plain',
+    md: 'text/markdown', markdown: 'text/markdown', csv: 'text/csv', tsv: 'text/tab-separated-values',
+    xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    json: 'application/json', html: 'text/html', htm: 'text/html', xml: 'application/xml', epub: 'application/epub+zip',
+    odt: 'application/vnd.oasis.opendocument.text', ods: 'application/vnd.oasis.opendocument.spreadsheet', odp: 'application/vnd.oasis.opendocument.presentation'
+  };
+  return map[ext] || null;
+}
+function detectMimeType(file) {
+  if (file && file.type) return file.type;
+  const byExt = getMimeTypeFromExtension(file?.name || '');
+  return byExt || 'application/octet-stream';
+}
+function isImageMimeType(mime) { return typeof mime === 'string' && mime.startsWith('image/'); }
+function isPreviewableImageMime(mime) {
+  const previewables = new Set([
+    'image/jpeg','image/png','image/gif','image/webp','image/svg+xml','image/bmp','image/x-icon','image/vnd.microsoft.icon','image/avif'
+  ]);
+  return previewables.has(mime);
+}
+function base64FromArrayBuffer(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const chunkSize = 0x8000; // 32KB chunks to avoid call stack limits
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+  return btoa(binary);
+}
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('read failed'));
+      reader.readAsDataURL(file);
+    } catch (e) { reject(e); }
+  });
+}
+function readFileAsArrayBuffer(file) {
+  return new Promise((resolve, reject) => {
+    try {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('read failed'));
+      reader.readAsArrayBuffer(file);
+    } catch (e) { reject(e); }
+  });
+}
+
 async function fetchWithRetry(url, options, maxRetries = 3) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const res = await fetch(url, options);
@@ -280,7 +338,8 @@ async function askSonar(query, historyMessages) {
     model: 'sonar',
     return_images: true,
     image_domain_filter: ['-gettyimages.com','-shutterstock.com'],
-    image_format_filter: ['jpg','png','webp','gif'],
+    // Allow a broader set of returned image formats
+    image_format_filter: ['jpg','jpeg','png','webp','gif','bmp','tiff','avif','svg'],
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       userLocation ? { role: 'system', content: `Location context: ${JSON.stringify(userLocation)}. Use location ONLY if the query explicitly depends on place or time-zone.` } : null,
@@ -1286,18 +1345,38 @@ if (attachBtn && imageInput) {
     pendingImages = [];
     pendingFiles = [];
     pendingImageNames = [];
-    for (const f of files) {
-      const sizeOk = typeof f.size === 'number' ? f.size <= 50 * 1024 * 1024 : true; // 50MB
+    for (const file of files) {
+      const sizeOk = typeof file.size === 'number' ? file.size <= 50 * 1024 * 1024 : true; // 50MB
       if (!sizeOk) continue;
-      const buf = await f.arrayBuffer();
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
-      if (f.type && f.type.startsWith('image/')) {
-        const mime = f.type || 'image/png';
-        pendingImages.push(`data:${mime};base64,${b64}`);
-        pendingImageNames.push(f.name || 'image');
+      const mime = detectMimeType(file);
+      // Try to preview only if browser supports the image MIME
+      if (isImageMimeType(mime)) {
+        try {
+          if (isPreviewableImageMime(mime)) {
+            const dataUrl = await readFileAsDataURL(file);
+            pendingImages.push(String(dataUrl));
+            pendingImageNames.push(file.name || 'image');
+          } else {
+            // Non-previewable images (e.g., HEIC/TIFF): store as file for sending
+            const buf = await readFileAsArrayBuffer(file);
+            const b64 = base64FromArrayBuffer(buf);
+            pendingFiles.push({ name: file.name || undefined, b64 });
+          }
+        } catch {
+          // Fallback to sending as file if preview fails
+          try {
+            const buf = await readFileAsArrayBuffer(file);
+            const b64 = base64FromArrayBuffer(buf);
+            pendingFiles.push({ name: file.name || undefined, b64 });
+          } catch {}
+        }
       } else {
-        // Docs: send raw base64 without data: prefix
-        pendingFiles.push({ name: f.name || undefined, b64 });
+        // Non-image files: send as base64 bytes (without data: prefix)
+        try {
+          const buf = await readFileAsArrayBuffer(file);
+          const b64 = base64FromArrayBuffer(buf);
+          pendingFiles.push({ name: file.name || undefined, b64 });
+        } catch {}
       }
     }
     const count = pendingImages.length + pendingFiles.length;
