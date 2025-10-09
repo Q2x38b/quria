@@ -79,7 +79,11 @@ const SYSTEM_PROMPT = [
   '- Select diverse, trustworthy sources.',
   '',
   'Weather:',
-  '- Provide a very short forecast only. When someone asks for the weather, use their current location for a short forecast.',
+  '- Use the provided Location context (city/region/country/lat/lon/timezone).',
+  '- Give a concise now + next-24h summary: current temperature, conditions, high/low, precipitation chance, and wind.',
+  '- Include the local time (e.g., "as of 14:35 local").',
+  '- Use °F for US; otherwise use °C.',
+  '- If location is unavailable, say so briefly and provide general guidance; do not guess.',
   '',
   'People:',
   '- Write a short, comprehensive biography.',
@@ -292,7 +296,8 @@ async function askSonar(query, historyMessages) {
         region: userLocation.region || undefined,
         city: userLocation.city || undefined,
         latitude: userLocation.lat || undefined,
-        longitude: userLocation.lon || undefined
+        longitude: userLocation.lon || undefined,
+        timezone: userLocation.timezone || undefined
       }
     };
   }
@@ -321,6 +326,65 @@ async function askSonar(query, historyMessages) {
   const rawImages = Array.isArray(data?.images) ? data.images : (Array.isArray(message?.images) ? message.images : []);
   const images = rawImages.map(normalizeImage).filter(Boolean);
   return { content, citations, images };
+}
+
+// Secret mini prompt: ask for 5 short related searches for a query
+async function askRelatedSuggestions(query) {
+  const system = [
+    'You are a query expansion assistant.',
+    'Given the user query, return exactly 5 short, varied, high-intent related searches.',
+    'Constraints:',
+    '- Each suggestion must be <= 48 characters',
+    '- No punctuation except standard spaces and hyphens',
+    '- No numbering or bullets',
+    '- Do not repeat the original query verbatim',
+    'Output ONLY a JSON array of 5 strings. No prose.'
+  ].join('\n');
+
+  const body = {
+    model: 'sonar',
+    messages: [
+      userLocation ? { role: 'system', content: `Location context: ${JSON.stringify(userLocation)}.` } : null,
+      { role: 'system', content: system },
+      { role: 'user', content: [{ type: 'text', text: query }] }
+    ].filter(Boolean),
+    temperature: 0.3,
+  };
+  const isIso2 = (c) => typeof c === 'string' && /^[A-Z]{2}$/.test(c);
+  if (userLocation && (isIso2(userLocation.country) || (userLocation.lat && userLocation.lon))) {
+    body.web_search_options = {
+      user_location: {
+        country: isIso2(userLocation.country) ? userLocation.country : undefined,
+        region: userLocation.region || undefined,
+        city: userLocation.city || undefined,
+        latitude: userLocation.lat || undefined,
+        longitude: userLocation.lon || undefined,
+        timezone: userLocation.timezone || undefined
+      }
+    };
+  }
+  try {
+    const res = await fetchWithRetry(`${API_BASE_URL}${CHAT_COMPLETIONS_PATH}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content || '';
+    // Try to parse content as JSON array; strip Markdown fences if present
+    const text = String(content).trim().replace(/^```[a-zA-Z]*\n([\s\S]*?)```$/m, '$1').trim();
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        return parsed.map(x => String(x)).filter(Boolean).slice(0, 5);
+      }
+    } catch {}
+    // Fallback: split by newlines
+    const lines = text.split('\n').map(s => s.replace(/^[-*\d\.\s]+/, '').trim()).filter(Boolean).slice(0,5);
+    return lines.length ? lines : null;
+  } catch {
+    return null;
+  }
 }
 
 function setLoading(isLoading) {
@@ -582,8 +646,20 @@ function renderChatFromData(chat) {
     actions.className = 'answer-actions card-body';
     const copyBtn = document.createElement('button');
     copyBtn.className = 'copy-btn';
-    copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="9" width="11" height="11" rx="2" ry="2" stroke-width="1.6"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke-width="1.6"/></svg><span>Copy</span>';
-    copyBtn.addEventListener('click', () => copyText(turn.content || ''));
+    const copyIcon = '<svg class="copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="9" width="11" height="11" rx="2" ry="2" stroke-width="1.6"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" stroke-width="1.6"/></svg>';
+    const checkIcon = '<svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M20 6L9 17l-5-5" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    copyBtn.innerHTML = `${copyIcon}<span>Copy</span>`;
+    copyBtn.addEventListener('click', async () => {
+      const text = turn.content || '';
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.classList.add('copied');
+        copyBtn.innerHTML = `${checkIcon}<span>Copied</span>`;
+        setTimeout(() => { copyBtn.classList.remove('copied'); copyBtn.innerHTML = `${copyIcon}<span>Copy</span>`; }, 1400);
+      } catch {
+        showToast('Copy failed');
+      }
+    });
     actions.appendChild(copyBtn);
     answerCard.appendChild(actions);
 
@@ -708,13 +784,22 @@ function renderMarkdown(markdownText, sources) {
       }
       html = marked.parse(normalized);
     } else {
-      // Fallback minimal formatting
-      html = normalized
-        .replace(/^###\s+(.*)$/gm, '<h3>$1</h3>')
-        .replace(/^##\s+(.*)$/gm, '<h2>$1</h2>')
-        .replace(/^#\s+(.*)$/gm, '<h2>$1</h2>')
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\n\n/g, '<br/><br/>' );
+      // Fallback minimal formatting with paragraphs
+      const withInline = normalized
+        .replace(/\r\n/g, '\n')
+        .replace(/^###\s+(.*)$/gm, '<h3>$1<\/h3>')
+        .replace(/^##\s+(.*)$/gm, '<h2>$1<\/h2>')
+        .replace(/^#\s+(.*)$/gm, '<h2>$1<\/h2>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1<\/strong>');
+      const blocks = withInline.trim().split(/\n{2,}/);
+      html = blocks.map(block => {
+        const b = block.trim();
+        if (!b) return '';
+        // Do not wrap headings in paragraphs
+        if (/^<h[23]>/.test(b)) return b;
+        return `<p>${b.replace(/\n/g, '<br/>')}<\/p>`;
+      }).join('\n');
+      // If markdown-like table detected, preserve line breaks
       if (/\|\s*[-]+/.test(html)) { html = html.replace(/\n/g, '<br/>'); }
     }
 
@@ -793,11 +878,16 @@ async function handleSearch(evt) {
       localStorage.setItem(RECENTS_KEY, JSON.stringify(arr));
     } catch {}
     const foundUrls = uniqueUrls((citations || []).length ? citations : extractUrlsFromText(content));
+    // Fetch dynamic related suggestions via secret prompt; fallback to template
+    let relatedSuggestions = await askRelatedSuggestions(q);
+    if (!Array.isArray(relatedSuggestions) || relatedSuggestions.length < 3) {
+      relatedSuggestions = generateRelated(q);
+    }
     const turn = {
       query: q,
       content: normalizedContent,
       sources: foundUrls,
-      related: generateRelated(q),
+      related: relatedSuggestions,
       ts: Date.now(),
       images: pendingImages.slice(),
       files: pendingFiles.slice(),
@@ -1037,7 +1127,7 @@ window.addEventListener('load', () => {
         country: countryCode,
         lat: typeof data?.latitude === 'number' ? data.latitude : (typeof data?.latitude === 'string' ? parseFloat(data.latitude) : undefined),
         lon: typeof data?.longitude === 'number' ? data.longitude : (typeof data?.longitude === 'string' ? parseFloat(data.longitude) : undefined),
-        timezone: data?.timezone || data?.time_zone || undefined
+        timezone: data?.timezone || data?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined
       };
     }).catch(() => {});
   } catch {}
