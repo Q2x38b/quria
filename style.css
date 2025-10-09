@@ -231,6 +231,16 @@ a { color: inherit; text-decoration: none; }
 /* Position submit button to bottom-right inside input */
 .input-tray-right { margin-left: auto; }
 
+/* Attachments preview below input */
+.attachments-preview { display: none; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; width: 100%; max-width: 48rem; margin: 8px auto 0; }
+.attachment-chip { display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 8px; border: 1px solid var(--border-subtle); background: rgba(23,23,23,0.5); padding: 6px 8px; border-radius: 10px; overflow: hidden; min-height: 40px; }
+[data-theme="light"] .attachment-chip { background: #fff; }
+.attachment-thumb { width: 28px; height: 28px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--hover-bg); display: inline-block; }
+.attachment-name { font-size: 12px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attachment-meta { font-size: 11px; color: var(--text-secondary); }
+.attachment-remove { background: transparent; border: none; color: var(--text-secondary); border-radius: 6px; padding: 4px; cursor: pointer; }
+.attachment-remove:hover { background: var(--hover-bg); color: var(--text-primary); }
+
 /* Chat-active layout: keep input at bottom; do NOT hide the input form */
 .chat-active .landing { display: contents; }
 .chat-active .hero,
@@ -376,7 +386,7 @@ a { color: inherit; text-decoration: none; }
 .drawer-icon-btn:hover { background: var(--hover-bg); color: var(--text-primary); }
 .drawer-content { padding: 10px; overflow: auto; display: grid; gap: 8px; }
 .chat-item { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; border: 1px solid var(--border-subtle); padding: 10px; border-radius: 10px; }
-.chat-item-title { font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.chat-item-title { font-weight: 500; color: var(--text-primary); white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
 .chat-item-sub { font-size: .75rem; color: var(--text-secondary); }
 .chat-item-actions { display: flex; gap: 6px; }
 .chat-open, .chat-delete { border: none; background: transparent; color: var(--text-secondary); border-radius: 6px; padding: 6px 10px; cursor: pointer; }
