@@ -280,7 +280,7 @@ async function askSonar(query, historyMessages) {
     model: 'sonar',
     return_images: true,
     image_domain_filter: ['-gettyimages.com','-shutterstock.com'],
-    image_format_filter: ['jpeg','png','webp','gif'],
+    image_format_filter: ['jpg','png','webp','gif'],
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       userLocation ? { role: 'system', content: `Location context: ${JSON.stringify(userLocation)}. Use location ONLY if the query explicitly depends on place or time-zone.` } : null,
@@ -632,9 +632,10 @@ function renderChatFromData(chat) {
     queryEl.className = 'result-query';
     queryEl.textContent = turn.query || '';
     header.appendChild(queryEl);
+    // Sources first, then images directly below
+    header.appendChild(buildSourcesGrid(turn.sources || []));
     const imgCarouselTop = renderImageCarousel(turn.resultImages || []);
     if (imgCarouselTop) header.appendChild(imgCarouselTop);
-    header.appendChild(buildSourcesGrid(turn.sources || []));
     resultsEl.appendChild(header);
 
     // Answer card per turn
@@ -667,13 +668,7 @@ function renderChatFromData(chat) {
     actions.appendChild(copyBtn);
     answerCard.appendChild(actions);
 
-    const imgCarousel = renderImageCarousel(turn.resultImages || []);
-    if (imgCarousel) {
-      const pad = document.createElement('div');
-      pad.className = 'card-body';
-      pad.appendChild(imgCarousel);
-      answerCard.appendChild(pad);
-    }
+    // Images are rendered in the header below sources; avoid duplicate carousel here
     resultsEl.appendChild(answerCard);
 
     // Only show related for the last turn
@@ -819,6 +814,47 @@ function renderMarkdown(markdownText, sources) {
         }).join('');
       });
     }
+
+    // Linkify plain URLs in the HTML while avoiding existing anchors
+    try {
+      const linkifyHtml = (rawHtml) => {
+        const container = document.createElement('div');
+        container.innerHTML = rawHtml;
+        const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
+        const textNodes = [];
+        while (walker.nextNode()) textNodes.push(walker.currentNode);
+        const hasAncestor = (node, tag) => {
+          const upper = String(tag).toUpperCase();
+          let n = node.parentNode;
+          while (n) { if (n.nodeType === 1 && n.tagName === upper) return true; n = n.parentNode; }
+          return false;
+        };
+        const urlRe = /(https?:\/\/[^\s<>"')]+)/g;
+        for (const node of textNodes) {
+          if (!node || hasAncestor(node, 'A')) continue;
+          const text = node.nodeValue || '';
+          if (!urlRe.test(text)) { urlRe.lastIndex = 0; continue; }
+          urlRe.lastIndex = 0;
+          const fragment = document.createDocumentFragment();
+          let lastIndex = 0; let m;
+          while ((m = urlRe.exec(text)) !== null) {
+            const before = text.slice(lastIndex, m.index);
+            if (before) fragment.appendChild(document.createTextNode(before));
+            const url = m[1];
+            const a = document.createElement('a');
+            a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+            a.textContent = url;
+            fragment.appendChild(a);
+            lastIndex = m.index + url.length;
+          }
+          const after = text.slice(lastIndex);
+          if (after) fragment.appendChild(document.createTextNode(after));
+          if (node.parentNode) node.parentNode.replaceChild(fragment, node);
+        }
+        return container.innerHTML;
+      };
+      html = linkifyHtml(html);
+    } catch {}
 
     if (window.DOMPurify && typeof DOMPurify.sanitize === 'function') {
       return DOMPurify.sanitize(html, { ALLOWED_ATTR: ['href','target','rel','src','alt','class'] });

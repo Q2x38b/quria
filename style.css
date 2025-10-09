@@ -347,6 +347,8 @@ a { color: inherit; text-decoration: none; }
 .answer-markdown pre { overflow-x: auto; padding: 10px; background: var(--hover-bg); border: 1px solid var(--border-subtle); border-radius: 8px; }
 .answer-markdown code { font-family: var(--font-geist-mono); font-size: 0.9em; }
 .answer-markdown blockquote { border-left: 3px solid var(--border-color); margin: 8px 0; padding: 6px 10px; color: var(--text-secondary); }
+.answer-markdown a { color: #3b82f6; text-decoration: underline; }
+[data-theme="light"] .answer-markdown a { color: #2563eb; }
 .sources-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; }
 .source-tile { display: grid; place-items: center; gap: 8px; border: 1px solid var(--border-subtle); border-radius: 10px; padding: 10px; color: var(--text-primary); text-decoration: none; }
 .source-tile:hover { background: var(--hover-bg); }
