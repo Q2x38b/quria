@@ -956,19 +956,28 @@ queryInput.addEventListener('keydown', (e) => {
   }
 });
 
-// Auto-grow textarea height between min and max
+// Auto-grow textarea height between computed CSS min/max
+function getTextareaBounds(el) {
+  try {
+    const cs = window.getComputedStyle(el);
+    const min = parseInt(cs.minHeight, 10) || 100;
+    const max = parseInt(cs.maxHeight, 10) || Math.max(120, min);
+    return { min, max };
+  } catch {
+    return { min: 100, max: 120 };
+  }
+}
+
 function autoGrowTextarea(el) {
-  const min = 100; // matches CSS min-height
-  const max = 120; // matches CSS max-height
+  const { min, max } = getTextareaBounds(el);
   el.style.height = 'auto';
-  // Subtract bottom tray reserve (about 38px) to avoid overlapping buttons
-  const reserve = 38;
   const contentHeight = el.scrollHeight + 2; // account for borders
   const next = Math.min(max, Math.max(min, contentHeight));
   el.style.height = next + 'px';
 }
 queryInput.addEventListener('input', () => autoGrowTextarea(queryInput));
 window.addEventListener('load', () => autoGrowTextarea(queryInput));
+window.addEventListener('resize', () => autoGrowTextarea(queryInput));
 
 for (const b of segButtons) {
   b.addEventListener('click', () => {
