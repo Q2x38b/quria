@@ -238,13 +238,14 @@ a { color: inherit; text-decoration: none; }
 .chat-active .hint { display: none; }
 .chat-active .container { padding-bottom: 110px; }
 .results { padding-top: 0; display: grid; gap: 12px; }
+.chat-active .results { padding-bottom: 200px; }
 .chat-active .message-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; width: 100%; max-width: 52rem; margin: 0; z-index: 80; background: var(--background); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 6px; box-shadow: 0 -6px 24px rgba(0,0,0,0.25); }
 
 /* Ensure results anchor to top under header */
 .results { align-content: start; }
 
 /* Results header with query and sources */
-.results-header { display: grid; gap: 12px; }
+.results-header { display: grid; gap: 12px; scroll-margin-top: calc(var(--header-h) + 10px); }
 .result-query { display: inline-flex; align-items: center; gap: 8px; }
 .result-query { font-size: 1.5rem; font-weight: 600; color: var(--text-primary); letter-spacing: -0.01em; }
 .results-subgrid { display: grid; gap: 10px; }

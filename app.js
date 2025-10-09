@@ -9,7 +9,15 @@ const CHAT_ID_PARAM = 'chatId';
 
 // System prompt for Sonar
 const SYSTEM_PROMPT = [
-  '<goal> Respond with only ever emojis </goal>'].join('\n');
+  '<goal> You are a helpful assistant. Follow all math formatting rules strictly. </goal>',
+  '<math_formatting>',
+  'Mathematical Expressions - Wrap all math expressions in LaTeX using $$ $$ for inline and $$ $$ for block formulas.',
+  'To cite a formula add citations to the end, for example $$\\sin(x)$$ or $$x^2 - 2$$.',
+  'Never use $ or $$ to render LaTeX if present in the original query; always output normalized LaTeX with $$ wrappers as specified.',
+  'Never use unicode to render math expressions, ALWAYS use LaTeX.',
+  'Never use the \\label instruction for LaTeX.',
+  '</math_formatting>'
+].join('\n');
 
 // UI elements
 const queryInput = document.getElementById('queryInput');
@@ -81,6 +89,18 @@ function getFaviconUrl(rawUrl) {
     const u = new URL(rawUrl);
     return `https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent(u.origin)}`;
   } catch { return 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='; }
+}
+
+// Smoothly scroll an element so its top aligns below the fixed header
+function scrollElementToTop(el, extraOffset = 8) {
+  if (!el) return;
+  try {
+    const headerEl = document.querySelector('.header');
+    const headerH = headerEl ? headerEl.offsetHeight : 0;
+    const rect = el.getBoundingClientRect();
+    const y = rect.top + window.scrollY - headerH - extraOffset;
+    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+  } catch {}
 }
 
 function uniqueUrls(urls) {
@@ -213,7 +233,8 @@ function setLoading(isLoading) {
       lastHeader.appendChild(sp);
     }
   } else {
-    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>';
+    // Upward arrow icon (active and inactive states share the same glyph)
+    btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 19V5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 5l-5 5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 5l5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     if (existingInline && existingInline.parentNode) existingInline.parentNode.removeChild(existingInline);
   }
 }
@@ -493,22 +514,96 @@ function renderChatFromData(chat) {
       resultsEl.appendChild(related);
     }
   });
+
+  // After rendering conversation, ensure last header is aligned and there is breathing room at the bottom
+  try {
+    const headers = resultsEl.querySelectorAll('.results-header');
+    const lastHeader = headers[headers.length - 1];
+    if (lastHeader) requestAnimationFrame(() => scrollElementToTop(lastHeader, 10));
+  } catch {}
 }
 
-// Render Markdown safely with optional citation icon replacement
+// Normalize math in text: strip \\label, convert unicode math to LaTeX, unify $...$ -> $$...$$
+function normalizeMathText(input) {
+  let text = String(input || '');
+  try {
+    // Remove \label{...}
+    text = text.replace(/\\label\s*\{[^}]*\}/g, '');
+
+    // Normalize dashes and minus
+    text = text.replace(/[\u2013\u2014\u2212]/g, '-');
+
+    // Convert single-dollar math to double-dollar
+    text = text.replace(/(^|[^$])\$([^$\n]+)\$([^$]|$)/g, (m, a, inner, b) => `${a}$$${inner}$$${b}`);
+
+    // Superscript map (for exponents)
+    const superscriptMap = {
+      '⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9',
+      '⁺':'+','⁻':'-','⁽':'(','⁾':')'
+    };
+    const supRegex = /([A-Za-z0-9)\]}])([⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁽⁾]+)/g;
+    text = text.replace(supRegex, (_m, base, sup) => {
+      const mapped = Array.from(sup).map(ch => superscriptMap[ch] || '').join('');
+      return `${base}^{${mapped}}`;
+    });
+
+    // Subscript map (basic digits and parentheses)
+    const subscriptMap = {
+      '₀':'0','₁':'1','₂':'2','₃':'3','₄':'4','₅':'5','₆':'6','₇':'7','₈':'8','₉':'9',
+      '₊':'+','₋':'-','₍':'(','₎':')'
+    };
+    const subRegex = /([A-Za-z0-9)\]}])([₀₁₂₃₄₅₆₇₈₉₊₋₍₎]+)/g;
+    text = text.replace(subRegex, (_m, base, sub) => {
+      const mapped = Array.from(sub).map(ch => subscriptMap[ch] || '').join('');
+      return `${base}_{${mapped}}`;
+    });
+
+    // Common math symbol replacements
+    const replacements = [
+      [/√\s*\(([\s\S]*?)\)/g, (_m, inner) => `\\sqrt{${inner}}`],
+      [/√\s*([A-Za-z0-9_]+)/g, (_m, v) => `\\sqrt{${v}}`],
+      [/×/g, ' \\times '],
+      [/÷/g, ' \\div '],
+      [/·/g, ' \\cdot '],
+      [/≤/g, ' \\le '],
+      [/≥/g, ' \\ge '],
+      [/≠/g, ' \\neq '],
+      [/≈/g, ' \\approx '],
+      [/∞/g, ' \\infty '],
+      [/∑/g, ' \\sum '],
+      [/∫/g, ' \\int '],
+      [/∏/g, ' \\prod '],
+      [/∇/g, ' \\nabla ']
+    ];
+    for (const [re, val] of replacements) { text = text.replace(re, val); }
+
+    // Greek letters (common subset)
+    const greek = {
+      'α':'alpha','β':'beta','γ':'gamma','δ':'delta','Δ':'Delta','ε':'epsilon','ζ':'zeta','η':'eta','θ':'theta','Θ':'Theta','ι':'iota','κ':'kappa','λ':'lambda','Λ':'Lambda','μ':'mu','ν':'nu','ξ':'xi','Ξ':'Xi','π':'pi','Π':'Pi','ρ':'rho','σ':'sigma','Σ':'Sigma','τ':'tau','φ':'phi','Φ':'Phi','χ':'chi','ψ':'psi','Ψ':'Psi','ω':'omega','Ω':'Omega'
+    };
+    text = text.replace(/[αβγδΔεζηθΘικλΛμνξΞπΠρσΣτφΦχψΨωΩ]/g, (ch) => `\\${greek[ch]}`);
+
+    return text;
+  } catch {
+    return text;
+  }
+}
+
+// Render Markdown safely with optional citation icon replacement and math normalization
 function renderMarkdown(markdownText, sources) {
   const md = markdownText || '';
   try {
+    const normalized = normalizeMathText(md);
     // Prefer marked + DOMPurify if available
     let html;
     if (window.marked && typeof marked.parse === 'function') {
       if (typeof marked.setOptions === 'function') {
         marked.setOptions({ gfm: true, breaks: true, headerIds: false, mangle: false });
       }
-      html = marked.parse(md);
+      html = marked.parse(normalized);
     } else {
       // Fallback minimal formatting
-      html = md
+      html = normalized
         .replace(/^###\s+(.*)$/gm, '<h3>$1</h3>')
         .replace(/^##\s+(.*)$/gm, '<h2>$1</h2>')
         .replace(/^#\s+(.*)$/gm, '<h2>$1</h2>')
@@ -572,9 +667,19 @@ async function handleSearch(evt) {
     const answerBody = document.createElement('div'); answerBody.className = 'card-body answer-markdown'; answerBody.style.fontSize = '1.02rem'; answerCard.appendChild(answerBody);
     resultsEl.appendChild(answerCard);
 
+    // Clear the input after sending and reset height
+    queryInput.value = '';
+    autoGrowTextarea(queryInput);
+
+    // Scroll the new query header into view (beneath fixed header)
+    requestAnimationFrame(() => scrollElementToTop(header, 10));
+
     // Build history for context and ask Sonar
     const history = buildHistoryMessages(chat);
     const { content, citations, images } = await askSonar(q, history);
+
+    // Apply math normalization to assistant content as well to ensure consistent rendering
+    const normalizedContent = normalizeMathText(content);
     // persist recent query for spotlight
     try {
       const arr = JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]').filter(x => x !== q);
@@ -584,7 +689,7 @@ async function handleSearch(evt) {
     const foundUrls = uniqueUrls((citations || []).length ? citations : extractUrlsFromText(content));
     const turn = {
       query: q,
-      content,
+      content: normalizedContent,
       sources: foundUrls,
       related: generateRelated(q),
       ts: Date.now(),
@@ -601,6 +706,12 @@ async function handleSearch(evt) {
     resultsEl.removeChild(answerCard);
     resultsEl.removeChild(header);
     renderChatFromData(updated);
+    // After full render, scroll to the last query header again for proper alignment
+    try {
+      const headers = resultsEl.querySelectorAll('.results-header');
+      const lastHeader = headers[headers.length - 1];
+      if (lastHeader) requestAnimationFrame(() => scrollElementToTop(lastHeader, 10));
+    } catch {}
     // Clear images after send
     pendingImages = [];
     pendingFiles = [];
