@@ -270,12 +270,21 @@ async function askSonar(query, { onChunk } = {}) {
 function setLoading(isLoading) {
   const btn = document.getElementById('submitBtn');
   btn.disabled = isLoading;
+  // Inline spinner next to query text at top
+  const existingInline = document.getElementById('inlineSpinner');
   if (isLoading) {
     btn.innerHTML = '<span class="spinner"></span>';
-    if (searchingOverlay) { searchingOverlay.classList.add('active'); }
+    // show inline spinner in the header results header if present
+    const lastHeader = resultsEl.querySelector('.results-header .result-query');
+    if (lastHeader && !existingInline) {
+      const sp = document.createElement('span');
+      sp.id = 'inlineSpinner';
+      sp.className = 'spinner spinner--sm';
+      lastHeader.appendChild(sp);
+    }
   } else {
     btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>';
-    if (searchingOverlay) { searchingOverlay.classList.remove('active'); }
+    if (existingInline && existingInline.parentNode) existingInline.parentNode.removeChild(existingInline);
   }
 }
 
@@ -771,17 +780,17 @@ window.addEventListener('load', () => {
   applyTheme(getPreferredTheme());
   updateGreeting();
   setInterval(updateGreeting, 30000);
-  // Attempt to fetch approximate location (IP-based)
+  // Attempt to fetch approximate location (IP-based) - CORS-safe
   try {
-    fetch('https://ipapi.co/json/').then(r => r.json()).then(data => {
-      const countryCode = (data?.country_code || data?.country || data?.country_name || '').toString().trim().toUpperCase();
+    fetch('https://get.geojs.io/v1/ip/geo.json', { mode: 'cors' }).then(r => r.json()).then(data => {
+      const countryCode = (data?.country_code || data?.country || '').toString().trim().toUpperCase();
       userLocation = {
         city: data?.city || undefined,
-        region: data?.region || data?.region_code || undefined,
-        country: countryCode, // must be ISO-3166 alpha-2
-        lat: typeof data?.latitude === 'number' ? data.latitude : undefined,
-        lon: typeof data?.longitude === 'number' ? data.longitude : undefined,
-        timezone: data?.timezone || undefined
+        region: data?.region || data?.region_name || data?.region_code || undefined,
+        country: countryCode,
+        lat: typeof data?.latitude === 'number' ? data.latitude : (typeof data?.latitude === 'string' ? parseFloat(data.latitude) : undefined),
+        lon: typeof data?.longitude === 'number' ? data.longitude : (typeof data?.longitude === 'string' ? parseFloat(data.longitude) : undefined),
+        timezone: data?.timezone || data?.time_zone || undefined
       };
     }).catch(() => {});
   } catch {}
