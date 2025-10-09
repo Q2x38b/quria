@@ -213,10 +213,11 @@ async function askSonar(query, { onChunk } = {}) {
     temperature: 0.2
   };
   // Add web_search_options.user_location if we have sufficient data
-  if (userLocation && (userLocation.country || (userLocation.lat && userLocation.lon))) {
+  const isIso2 = (c) => typeof c === 'string' && /^[A-Z]{2}$/.test(c);
+  if (userLocation && (isIso2(userLocation.country) || (userLocation.lat && userLocation.lon))) {
     body.web_search_options = {
       user_location: {
-        country: userLocation.country || 'US',
+        country: isIso2(userLocation.country) ? userLocation.country : undefined,
         region: userLocation.region || undefined,
         city: userLocation.city || undefined,
         latitude: userLocation.lat || undefined,
@@ -380,6 +381,8 @@ function resetToNewChat() {
   // Remove q param
   try { const url = new URL(window.location.href); url.searchParams.delete('q'); history.replaceState({}, '', url.toString()); } catch {}
   queryInput.focus();
+  // Return to top when starting a new chat
+  try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch { window.scrollTo(0,0); }
 }
 
 function saveChats(chats) { try { localStorage.setItem(CHATS_KEY, JSON.stringify(chats)); } catch {} }
@@ -771,13 +774,14 @@ window.addEventListener('load', () => {
   // Attempt to fetch approximate location (IP-based)
   try {
     fetch('https://ipapi.co/json/').then(r => r.json()).then(data => {
+      const countryCode = (data?.country_code || data?.country || data?.country_name || '').toString().trim().toUpperCase();
       userLocation = {
-        city: data?.city,
-        region: data?.region,
-        country: data?.country_name,
-        lat: data?.latitude,
-        lon: data?.longitude,
-        timezone: data?.timezone
+        city: data?.city || undefined,
+        region: data?.region || data?.region_code || undefined,
+        country: countryCode, // must be ISO-3166 alpha-2
+        lat: typeof data?.latitude === 'number' ? data.latitude : undefined,
+        lon: typeof data?.longitude === 'number' ? data.longitude : undefined,
+        timezone: data?.timezone || undefined
       };
     }).catch(() => {});
   } catch {}
@@ -787,10 +791,12 @@ window.addEventListener('load', () => {
     startedFromUrl = true;
     queryInput.value = q;
     handleSearch(new Event('submit'));
+    // Ensure we start at the top when loading an existing chat
+    try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch { window.scrollTo(0,0); }
   } else {
     // Load last chat if any
     const chats = loadChats();
-    if (chats.length) { renderChatFromData(chats[0]); }
+    if (chats.length) { renderChatFromData(chats[0]); try { window.scrollTo({ top: 0, behavior: 'instant' }); } catch { window.scrollTo(0,0); } }
     else { queryInput.focus(); }
   }
 });
