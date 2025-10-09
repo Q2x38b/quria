@@ -203,7 +203,7 @@ async function askSonar(query) {
     model: 'sonar',
     return_images: true,
     image_domain_filter: ['-gettyimages.com','-shutterstock.com'],
-    image_format_filter: ['jpg','png','webp','gif'],
+    image_format_filter: ['jpeg','png','webp','gif'],
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       userLocation ? { role: 'system', content: `Location context: ${JSON.stringify(userLocation)}. Use location ONLY if the query explicitly depends on place or time-zone.` } : null,
