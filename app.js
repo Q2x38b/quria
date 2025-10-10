@@ -800,6 +800,15 @@ function normalizeMathText(input) {
     // Convert single-dollar math to double-dollar
     text = text.replace(/(^|[^$])\$([^$\n]+)\$([^$]|$)/g, (m, a, inner, b) => `${a}$$${inner}$$${b}`);
 
+    // Custom operator tokens: ";+;" and ";-;" -> canonical operators with spacing
+    // This allows inputs like: \frac{1}{x} ;+; \frac{1}{y}
+    text = text.replace(/\s*;\s*\+\s*;\s*/g, ' + ');
+    text = text.replace(/\s*;\s*-\s*;\s*/g, ' - ');
+    // Wrap TeX-like content inside bare square brackets in $$..$$ if not a link
+    // Example: [ \\frac{1}{x} + \\frac{1}{y} ] -> $$\\frac{1}{x} + \\frac{1}{y}$$
+    // Do not match Markdown links where ']' is immediately followed by '(' or '['
+    text = text.replace(/\[(\s*\\[A-Za-z][\s\S]*?)\](?!\(|\[)/g, (_m, inner) => `$$${inner.trim()}$$`);
+
     // Superscript map (for exponents)
     const superscriptMap = {
       '⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9',
