@@ -79,11 +79,12 @@ const SYSTEM_PROMPT = [
   '- Select diverse, trustworthy sources.',
   '',
   'Weather:',
-  '- Use the provided Location context (city/region/country/lat/lon/timezone).',
-  '- Give a concise now + next-24h summary: current temperature, conditions, high/low, precipitation chance, and wind.',
+  '- Always fetch current conditions from AccuWeather for the detected or specified location.',
+  '- Output MUST start with a Markdown table of current conditions (time, temp, feels-like, condition, wind, humidity).',
+  '- After the table, provide a concise next-24h outlook: high/low, precipitation chance, and wind.',
   '- Include the local time (e.g., "as of 14:35 local").',
   '- Use °F for US; otherwise use °C.',
-  '- If location is unavailable, say so briefly and provide general guidance; do not guess.',
+  '- If location is unavailable, briefly ask for the city and country and do not guess.',
   '',
   'People:',
   '- Write a short, comprehensive biography.',
@@ -451,21 +452,21 @@ async function askRelatedSuggestions(query) {
 
 function setLoading(isLoading) {
   const btn = document.getElementById('submitBtn');
-  btn.disabled = isLoading;
-  // Inline spinner next to query text at top
+  btn.disabled = false; // keep clickable to allow abort
   const existingInline = document.getElementById('inlineSpinner');
   if (isLoading) {
-    btn.innerHTML = '<span class="spinner"></span>';
-    // show inline spinner in the header results header if present
+    // submit button shows stop icon on hover via CSS class
+    btn.classList.add('stop-active');
+    btn.innerHTML = '<div class="chaotic-orbit" aria-hidden="true"></div>';
     const lastHeader = resultsEl.querySelector('.results-header .result-query');
     if (lastHeader && !existingInline) {
       const sp = document.createElement('span');
       sp.id = 'inlineSpinner';
-      sp.className = 'spinner spinner--sm';
+      sp.className = 'chaotic-orbit';
       lastHeader.appendChild(sp);
     }
   } else {
-    // Upward arrow icon (active and inactive states share the same glyph)
+    btn.classList.remove('stop-active');
     btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 19V5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 5l-5 5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 5l5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     if (existingInline && existingInline.parentNode) existingInline.parentNode.removeChild(existingInline);
   }
@@ -997,9 +998,15 @@ async function handleSearch(evt) {
     header = document.createElement('div'); header.className = 'results-header';
     const queryEl = document.createElement('div'); queryEl.className = 'result-query'; queryEl.textContent = q; header.appendChild(queryEl);
     resultsEl.appendChild(header);
-    const sp = document.createElement('span'); sp.id = 'inlineSpinner'; sp.className = 'spinner spinner--sm'; queryEl.appendChild(sp);
+    const sp = document.createElement('span'); sp.id = 'inlineSpinner'; sp.className = 'chaotic-orbit'; queryEl.appendChild(sp);
     answerCard = document.createElement('div'); answerCard.className = 'card card--no-border';
-    const answerBody = document.createElement('div'); answerBody.className = 'card-body answer-markdown'; answerBody.style.fontSize = '1.02rem'; answerCard.appendChild(answerBody);
+    const answerBody = document.createElement('div'); answerBody.className = 'card-body answer-markdown'; answerBody.style.fontSize = '1.02rem';
+    // Loading placeholders
+    const loadingTitle = document.createElement('div'); loadingTitle.style.opacity = '0.8'; loadingTitle.style.fontWeight = '600'; loadingTitle.textContent = 'Answer is loading…';
+    const loadingPara = document.createElement('p'); loadingPara.textContent = '';
+    answerBody.appendChild(loadingTitle);
+    answerBody.appendChild(loadingPara);
+    answerCard.appendChild(answerBody);
     resultsEl.appendChild(answerCard);
 
     // Clear the input after sending and reset height
@@ -1090,6 +1097,32 @@ async function batchSearch(queries, batchSize = 3, delayMs = 1000) {
 
 // Events
 searchForm.addEventListener('submit', handleSearch);
+// Stop/abort behavior: clicking submit while loading aborts; hover shows stop via CSS
+document.getElementById('submitBtn')?.addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  const isStop = btn && btn.classList && btn.classList.contains('stop-active');
+  if (isStop && inFlightController) {
+    e.preventDefault();
+    abortInFlight();
+    setLoading(false);
+  }
+});
+// Hover swap to stop icon while loading
+(() => {
+  const btn = document.getElementById('submitBtn');
+  if (!btn) return;
+  const stopIcon = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><rect x="6" y="6" width="12" height="12" rx="2" ry="2" stroke-width="1.8"/></svg>';
+  btn.addEventListener('mouseenter', () => {
+    if (btn.classList.contains('stop-active')) {
+      btn.innerHTML = stopIcon;
+    }
+  });
+  btn.addEventListener('mouseleave', () => {
+    if (btn.classList.contains('stop-active')) {
+      btn.innerHTML = '<div class="chaotic-orbit" aria-hidden="true"></div>';
+    }
+  });
+})();
 queryInput.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     queryInput.blur();
