@@ -400,11 +400,21 @@ async function askSonar(query, historyMessages) {
 
   // Fallback: derive image-like URLs from content and citations if API didn't fill images
   if (!images.length) {
-    const hasImageExt = (u) => {
-      try { const p = new URL(u); return /\.(jpe?g|png|gif|webp|svg|bmp)$/i.test(p.pathname); } catch { return false; }
+    const hasImageLike = (u) => {
+      try {
+        const p = new URL(u);
+        if (/\.(jpe?g|png|gif|webp|svg|bmp)$/i.test(p.pathname)) return true;
+        const host = p.hostname.toLowerCase();
+        // Known image CDNs that may omit extensions
+        const knownHosts = ['upload.wikimedia.org','images.unsplash.com','i.imgur.com','imgur.com','i.redd.it','pbs.twimg.com','live.staticflickr.com'];
+        return knownHosts.some(h => host.endsWith(h));
+      } catch { return false; }
     };
-    const fromContent = (extractUrlsFromText(content) || []).filter(hasImageExt);
-    const fromCitations = (Array.isArray(citations) ? citations : []).filter(hasImageExt);
+    const urlsInText = extractUrlsFromText(content) || [];
+    const mdImgMatches = Array.from(String(content || '').matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)).map(m => m[1]);
+    const htmlImgMatches = Array.from(String(content || '').matchAll(/<img[^>]*src=["']([^"'>]+)["']/gi)).map(m => m[1]);
+    const fromContent = [...urlsInText, ...mdImgMatches, ...htmlImgMatches].filter(hasImageLike);
+    const fromCitations = (Array.isArray(citations) ? citations : []).filter(hasImageLike);
     const merged = [...fromContent, ...fromCitations];
     images = Array.from(new Set(merged));
   }
