@@ -338,8 +338,6 @@ async function askSonar(query, historyMessages) {
   const body = {
     model: 'sonar',
     return_images: true,
-    // Use API-supported image formats as per docs (lowercase, no dot)
-    image_format_filter: ['jpg','png','webp','gif'],
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       userLocation ? { role: 'system', content: `Location context: ${JSON.stringify(userLocation)}. Use location ONLY if the query explicitly depends on place or time-zone.` } : null,
@@ -480,20 +478,17 @@ function setLoading(isLoading) {
     // submit button uses original spinner while loading
     btn.classList.add('stop-active');
     btn.innerHTML = '<span class="spinner"></span>';
-    const lastQueryEl = resultsEl.querySelector('.results-header .result-query');
-    if (lastQueryEl) lastQueryEl.classList.add('shimmering');
-    if (lastQueryEl && !existingInline) {
+    const lastHeader = resultsEl.querySelector('.results-header .result-query');
+    if (lastHeader && !existingInline) {
       const sp = document.createElement('span');
       sp.id = 'inlineSpinner';
       sp.className = 'chaotic-orbit';
-      lastQueryEl.appendChild(sp);
+      lastHeader.appendChild(sp);
     }
   } else {
     btn.classList.remove('stop-active');
     btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 19V5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 5l-5 5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 5l5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     if (existingInline && existingInline.parentNode) existingInline.parentNode.removeChild(existingInline);
-    // Remove shimmering from any query titles
-    try { Array.from(resultsEl.querySelectorAll('.result-query.shimmering')).forEach(el => el.classList.remove('shimmering')); } catch {}
   }
 }
 
@@ -1023,9 +1018,7 @@ async function handleSearch(evt) {
     header = document.createElement('div'); header.className = 'results-header';
     const queryEl = document.createElement('div'); queryEl.className = 'result-query'; queryEl.textContent = q; header.appendChild(queryEl);
     resultsEl.appendChild(header);
-    // While searching, add spinner + shimmer to query
     const sp = document.createElement('span'); sp.id = 'inlineSpinner'; sp.className = 'chaotic-orbit'; queryEl.appendChild(sp);
-    queryEl.classList.add('shimmering');
     answerCard = document.createElement('div'); answerCard.className = 'card card--no-border';
     const answerBody = document.createElement('div'); answerBody.className = 'card-body answer-markdown'; answerBody.style.fontSize = '1.02rem';
     // Skeleton placeholders
@@ -1455,14 +1448,12 @@ function renderAttachmentsPreview() {
 }
 
 if (attachBtn && imageInput) {
-  try { imageInput.setAttribute('multiple', 'multiple'); } catch {}
   attachBtn.addEventListener('click', () => imageInput.click());
   imageInput.addEventListener('change', async () => {
-    const incoming = Array.from(imageInput.files || []);
-    // Limit total attachments to 10 across images+files
-    const currentCount = pendingImages.length + pendingFiles.length;
-    const remainingSlots = Math.max(0, 10 - currentCount);
-    const files = incoming.slice(0, remainingSlots);
+    const files = Array.from(imageInput.files || []).slice(0, 10);
+    pendingImages = [];
+    pendingFiles = [];
+    pendingImageNames = [];
     for (const file of files) {
       const sizeOk = typeof file.size === 'number' ? file.size <= 50 * 1024 * 1024 : true; // 50MB
       if (!sizeOk) continue;
@@ -1503,8 +1494,6 @@ if (attachBtn && imageInput) {
       else { attachBadge.style.display = 'none'; }
     }
     renderAttachmentsPreview();
-    // Reset input so selecting the same file(s) again triggers change
-    try { imageInput.value = ''; } catch {}
   });
 }
 
