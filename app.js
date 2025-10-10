@@ -338,7 +338,6 @@ async function askSonar(query, historyMessages) {
   const body = {
     model: 'sonar',
     return_images: true,
-    image_domain_filter: ['-gettyimages.com','-shutterstock.com'],
     // Use API-supported image formats (per API error message)
     image_format_filter: ['bmp','gif','jpeg','png','webp','svg'],
     messages: [
@@ -399,7 +398,18 @@ async function askSonar(query, historyMessages) {
   };
   const choiceImages = Array.isArray(choice?.images) ? choice.images : [];
   const rawImages = Array.isArray(data?.images) ? data.images : (Array.isArray(message?.images) ? message.images : choiceImages);
-  const images = Array.from(new Set(rawImages.map(normalizeImage).filter(Boolean)));
+  let images = Array.from(new Set(rawImages.map(normalizeImage).filter(Boolean)));
+
+  // Fallback: derive image-like URLs from content and citations if API didn't fill images
+  if (!images.length) {
+    const hasImageExt = (u) => {
+      try { const p = new URL(u); return /\.(jpe?g|png|gif|webp|svg|bmp)$/i.test(p.pathname); } catch { return false; }
+    };
+    const fromContent = (extractUrlsFromText(content) || []).filter(hasImageExt);
+    const fromCitations = (Array.isArray(citations) ? citations : []).filter(hasImageExt);
+    const merged = [...fromContent, ...fromCitations];
+    images = Array.from(new Set(merged));
+  }
   return { content, citations, images };
 }
 
