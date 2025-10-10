@@ -295,26 +295,48 @@ function readFileAsArrayBuffer(file) {
   });
 }
 
-async function fetchWithRetry(url, options, maxRetries = 3) {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    const res = await fetch(url, options);
-    if (res.status !== 429) {
+async function fetchWithRetry(url, options, maxRetries = 3, retryOn = [429, 500, 502, 503, 504], timeoutMs = 20000) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const externalSignal = options?.signal;
+    if (externalSignal) {
+      if (externalSignal.aborted) controller.abort();
+      else externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+    const opts = { ...(options || {}), signal: controller.signal };
+    const timer = setTimeout(() => {
+      try { controller.abort(); } catch {}
+    }, timeoutMs);
+    try {
+      const res = await fetch(url, opts);
+      clearTimeout(timer);
       if (!res.ok) {
+        if (retryOn.includes(res.status) && attempt < maxRetries) {
+          const backoff = (2 ** attempt + Math.random()) * 800;
+          await sleep(backoff);
+          continue;
+        }
         const text = await res.text().catch(() => '');
         throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
       }
       return res;
+    } catch (err) {
+      clearTimeout(timer);
+      lastError = err;
+      // If external abort, stop retrying
+      if (externalSignal && externalSignal.aborted) break;
+      // Retry on network errors/timeouts
+      if (attempt < maxRetries) {
+        const backoff = (2 ** attempt + Math.random()) * 800;
+        await sleep(backoff);
+        continue;
+      }
+      break;
     }
-    const delay = (2 ** attempt + Math.random()) * 1000;
-    await sleep(delay);
   }
-  // Last attempt
-  const final = await fetch(url, options);
-  if (!final.ok) {
-    const text = await final.text().catch(() => '');
-    throw new Error(`HTTP ${final.status}: ${text || final.statusText}`);
-  }
-  return final;
+  if (lastError) throw lastError;
+  throw new Error('Request failed');
 }
 
 async function askSonar(query, historyMessages) {
@@ -961,6 +983,10 @@ function getFriendlyErrorMessage(rawMessage) {
   const lower = message.toLowerCase();
   if (lower.includes('pplx_api_key')) {
     const text = 'Server missing PPLX_API_KEY. Configure it on the server and try again.';
+    return { toast: text, inline: text };
+  }
+  if (lower.startsWith('http 504') || lower.includes('function_invocation_timeout') || lower.includes('timeout')) {
+    const text = 'The server timed out processing your request. Please try again.';
     return { toast: text, inline: text };
   }
   if (lower.includes('failed to fetch') || lower.includes('network')) {
