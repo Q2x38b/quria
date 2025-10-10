@@ -339,9 +339,8 @@ async function askSonar(query, historyMessages) {
     model: 'sonar',
     return_images: true,
     image_domain_filter: ['-gettyimages.com','-shutterstock.com'],
-  // Use API-supported image formats only (per docs)
-  // Allowed: bmp, gif, jpeg, png, webp, svg
-  image_format_filter: ['jpeg','png','webp','gif','svg','bmp'],
+    // Use API-supported image formats (per docs)
+    image_format_filter: ['jpg','png','webp','gif'],
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       userLocation ? { role: 'system', content: `Location context: ${JSON.stringify(userLocation)}. Use location ONLY if the query explicitly depends on place or time-zone.` } : null,
@@ -380,14 +379,26 @@ async function askSonar(query, historyMessages) {
   // Citations may appear in message.citations or top-level data.citations
   const citations = Array.isArray(message?.citations) ? message.citations : (Array.isArray(data?.citations) ? data.citations : []);
   const normalizeImage = (it) => {
-    if (!it) return null;
-    if (typeof it === 'string') return it;
-    if (typeof it.url === 'string') return it.url;
-    if (typeof it.src === 'string') return it.src;
-    return null;
+    try {
+      if (!it) return null;
+      let u = null;
+      if (typeof it === 'string') u = it;
+      else if (typeof it.url === 'string') u = it.url;
+      else if (typeof it.src === 'string') u = it.src;
+      else if (typeof it.link === 'string') u = it.link;
+      else if (typeof it.href === 'string') u = it.href;
+      else if (it.image_url && typeof it.image_url.url === 'string') u = it.image_url.url;
+      if (!u) return null;
+      // Validate absolute URL
+      const parsed = new URL(u);
+      if (!/^https?:$/.test(parsed.protocol)) return null;
+      return parsed.toString();
+    } catch {
+      return null;
+    }
   };
   const rawImages = Array.isArray(data?.images) ? data.images : (Array.isArray(message?.images) ? message.images : []);
-  const images = rawImages.map(normalizeImage).filter(Boolean);
+  const images = Array.from(new Set(rawImages.map(normalizeImage).filter(Boolean)));
   return { content, citations, images };
 }
 
@@ -455,9 +466,9 @@ function setLoading(isLoading) {
   btn.disabled = false; // keep clickable to allow abort
   const existingInline = document.getElementById('inlineSpinner');
   if (isLoading) {
-    // submit button shows stop icon on hover via CSS class
+    // submit button uses original spinner while loading
     btn.classList.add('stop-active');
-    btn.innerHTML = '<div class="chaotic-orbit" aria-hidden="true"></div>';
+    btn.innerHTML = '<span class="spinner"></span>';
     const lastHeader = resultsEl.querySelector('.results-header .result-query');
     if (lastHeader && !existingInline) {
       const sp = document.createElement('span');
@@ -1001,11 +1012,13 @@ async function handleSearch(evt) {
     const sp = document.createElement('span'); sp.id = 'inlineSpinner'; sp.className = 'chaotic-orbit'; queryEl.appendChild(sp);
     answerCard = document.createElement('div'); answerCard.className = 'card card--no-border';
     const answerBody = document.createElement('div'); answerBody.className = 'card-body answer-markdown'; answerBody.style.fontSize = '1.02rem';
-    // Loading placeholders
-    const loadingTitle = document.createElement('div'); loadingTitle.style.opacity = '0.8'; loadingTitle.style.fontWeight = '600'; loadingTitle.textContent = 'Answer is loading…';
-    const loadingPara = document.createElement('p'); loadingPara.textContent = '';
-    answerBody.appendChild(loadingTitle);
-    answerBody.appendChild(loadingPara);
+    // Skeleton placeholders
+    const sk1 = document.createElement('div'); sk1.className = 'skeleton'; sk1.style.height = '16px'; sk1.style.margin = '6px 0'; sk1.style.width = '80%';
+    const sk2 = document.createElement('div'); sk2.className = 'skeleton'; sk2.style.height = '16px'; sk2.style.margin = '6px 0'; sk2.style.width = '92%';
+    const sk3 = document.createElement('div'); sk3.className = 'skeleton'; sk3.style.height = '16px'; sk3.style.margin = '6px 0'; sk3.style.width = '70%';
+    answerBody.appendChild(sk1);
+    answerBody.appendChild(sk2);
+    answerBody.appendChild(sk3);
     answerCard.appendChild(answerBody);
     resultsEl.appendChild(answerCard);
 
@@ -1119,7 +1132,7 @@ document.getElementById('submitBtn')?.addEventListener('click', (e) => {
   });
   btn.addEventListener('mouseleave', () => {
     if (btn.classList.contains('stop-active')) {
-      btn.innerHTML = '<div class="chaotic-orbit" aria-hidden="true"></div>';
+      btn.innerHTML = '<span class="spinner"></span>';
     }
   });
 })();
