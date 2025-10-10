@@ -338,7 +338,7 @@ a { color: inherit; text-decoration: none; }
 /* Markdown styling inside answer */
 .answer-markdown h2 { font-size: 1.1rem; margin: 8px 0; }
 .answer-markdown p { margin: 8px 0; text-indent: 0; }
-.answer-markdown p + p { text-indent: 1.25rem; }
+.answer-markdown p + p { text-indent: 0; }
 .answer-markdown ul { margin: 8px 0 8px 1.25rem; padding-left: 1rem; }
 .answer-markdown ol { margin: 8px 0 8px 1.25rem; padding-left: 1rem; }
 .answer-markdown ul { margin: 8px 0; padding-left: 18px; }
@@ -387,7 +387,7 @@ a { color: inherit; text-decoration: none; }
 
 /* Chaotic orbit loader (inline) */
 .chaotic-orbit {
-  --uib-size: 16px;
+  --uib-size: 12px;
   --uib-speed: 1.5s;
   --uib-color: var(--text-primary);
   position: relative;
@@ -398,7 +398,7 @@ a { color: inherit; text-decoration: none; }
   width: var(--uib-size);
   animation: rotate936 calc(var(--uib-speed) * 1.667) infinite linear;
 }
-.result-query .chaotic-orbit { margin-left: 10px; }
+.result-query .chaotic-orbit { margin-left: 12px; }
 
 /* Skeleton placeholders */
 .skeleton { position: relative; overflow: hidden; background: rgba(255,255,255,0.06); border-radius: 8px; }

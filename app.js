@@ -397,7 +397,8 @@ async function askSonar(query, historyMessages) {
       return null;
     }
   };
-  const rawImages = Array.isArray(data?.images) ? data.images : (Array.isArray(message?.images) ? message.images : []);
+  const choiceImages = Array.isArray(choice?.images) ? choice.images : [];
+  const rawImages = Array.isArray(data?.images) ? data.images : (Array.isArray(message?.images) ? message.images : choiceImages);
   const images = Array.from(new Set(rawImages.map(normalizeImage).filter(Boolean)));
   return { content, citations, images };
 }
@@ -577,7 +578,7 @@ function resetToNewChat() {
   abortInFlight();
   currentChatId = null;
   setChatActive(false);
-  resultsEl.innerHTML = '';
+  try { resultsEl.innerHTML = ''; } catch {}
   queryInput.value = '';
   pendingImages = [];
   pendingFiles = [];
@@ -1013,9 +1014,9 @@ async function handleSearch(evt) {
     answerCard = document.createElement('div'); answerCard.className = 'card card--no-border';
     const answerBody = document.createElement('div'); answerBody.className = 'card-body answer-markdown'; answerBody.style.fontSize = '1.02rem';
     // Skeleton placeholders
-    const sk1 = document.createElement('div'); sk1.className = 'skeleton'; sk1.style.height = '16px'; sk1.style.margin = '6px 0'; sk1.style.width = '80%';
-    const sk2 = document.createElement('div'); sk2.className = 'skeleton'; sk2.style.height = '16px'; sk2.style.margin = '6px 0'; sk2.style.width = '92%';
-    const sk3 = document.createElement('div'); sk3.className = 'skeleton'; sk3.style.height = '16px'; sk3.style.margin = '6px 0'; sk3.style.width = '70%';
+    const sk1 = document.createElement('div'); sk1.className = 'skeleton'; sk1.style.height = '22px'; sk1.style.margin = '12px 0'; sk1.style.width = '85%';
+    const sk2 = document.createElement('div'); sk2.className = 'skeleton'; sk2.style.height = '22px'; sk2.style.margin = '12px 0'; sk2.style.width = '96%';
+    const sk3 = document.createElement('div'); sk3.className = 'skeleton'; sk3.style.height = '22px'; sk3.style.margin = '12px 0'; sk3.style.width = '72%';
     answerBody.appendChild(sk1);
     answerBody.appendChild(sk2);
     answerBody.appendChild(sk3);
@@ -1086,8 +1087,8 @@ async function handleSearch(evt) {
     const friendly = getFriendlyErrorMessage(err?.message || '');
     showToast(friendly.toast);
     // Clean up shells if present
-    try { if (answerCard && answerCard.parentNode) resultsEl.removeChild(answerCard); } catch {}
-    try { if (header && header.parentNode) resultsEl.removeChild(header); } catch {}
+    try { if (answerCard && answerCard.parentNode === resultsEl) resultsEl.removeChild(answerCard); } catch {}
+    try { if (header && header.parentNode === resultsEl) resultsEl.removeChild(header); } catch {}
     // Render an inline error so the user sees what happened in context
     renderInlineError(q, friendly.inline);
   } finally {
